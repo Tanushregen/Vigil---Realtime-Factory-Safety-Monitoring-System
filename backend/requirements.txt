@@ -1,0 +1,7 @@
+cryptography
+fastapi
+httpx
+opencv-python
+python-dotenv
+sqlalchemy
+uvicorn

@@ -1,0 +1,8 @@
+
+api:
+  listen: ":1984"
+
+rtsp:
+  listen: ":8554"
+
+streams: {}

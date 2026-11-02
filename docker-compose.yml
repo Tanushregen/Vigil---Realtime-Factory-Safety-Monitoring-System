@@ -1,0 +1,13 @@
+
+services:
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: vigil-go2rtc
+    restart: unless-stopped
+
+    ports:
+      - "1984:1984"
+      - "8554:8554"
+
+    volumes:
+      - ./go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro

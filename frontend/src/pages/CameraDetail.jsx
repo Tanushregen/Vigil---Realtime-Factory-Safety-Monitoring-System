@@ -106,7 +106,7 @@ function CameraDetail({ camera, onBack, onDeleted, onUpdated }) {
         <iframe
           key={camera.id}
           title={`Camera ${camera.id} live view`}
-          src={`http://127.0.0.1:1984/stream.html?src=cam${camera.id}&mode=webrtc`}
+          src={`http://127.0.0.1:1984/stream.html?src=cam${camera.id}&mode=mse,webrtc`}
           allow="autoplay; fullscreen"
           className="live-player"
         />

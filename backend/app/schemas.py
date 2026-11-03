@@ -84,6 +84,10 @@ class CameraUpdate(BaseModel):
     name: Optional[str] = None
     zone: Optional[str] = None
     analysis_enabled: Optional[bool] = None
+    
+    segment_seconds: int | None = Field(default=None, ge=10, le=86400)
+    clip_pre_seconds: int | None = Field(default=None, ge=0, le=60)
+    clip_post_seconds: int | None = Field(default=None, ge=0, le=60)
 
     @field_validator("name")
     @classmethod

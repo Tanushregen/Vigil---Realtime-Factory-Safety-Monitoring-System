@@ -15,6 +15,20 @@ from app.rtsp import build_urls, validate_rtsp_stream
 from app.schemas import CameraGroupUpdate, DVRCreate,CameraUpdate, CameraManualCreate, CameraRTSPUpdate, SafetyPromptCreate, SafetyPromptEnabledUpdate, CameraGroupCreate, CameraGroupUpdate, SafetyPromptCreate, SafetyPromptUpdate, SafetyPromptEnabledUpdate
 from app.go2rtc import register_stream, delete_stream
 from app.frames import capture_threads, stop_events
+from app.recorder import start_recordings, stop_recording, stop_all_recordings, restart_recording
+from app.clips import start_clip_buffers, stop_clip_buffer, stop_all_clip_buffers
+from app.violations import record_violation_async
+    
+from app import storage
+from app.recorder import forget_camera
+
+from app import clips
+
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 app = FastAPI(
     title="VIGIL API",
@@ -141,6 +155,7 @@ async def monitor_go2rtc():
                 db.close()
 
             start_frame_capture()
+            start_recordings()
 
         except Exception:
             logger.exception("go2rtc recovery check failed")
@@ -154,6 +169,7 @@ async def startup():
     init_db()
     register_existing_streams()
     start_frame_capture()
+    start_recordings()
     health_task = asyncio.create_task(check_camera_health())
     recovery_task = asyncio.create_task(monitor_go2rtc())
     
@@ -180,6 +196,7 @@ async def shutdown():
     for thread in threads:
         if thread.is_alive():
             await asyncio.to_thread(thread.join, 5)
+            await asyncio.to_thread(stop_all_recordings)
 # Home endpoint
 @app.get("/")
 def home():
@@ -456,6 +473,10 @@ def get_cameras(
             "status": camera.status,
             "last_seen": camera.last_seen,
             "analysis_enabled": camera.analysis_enabled,
+            "storage_folder": camera.storage_folder,
+            "segment_seconds": camera.segment_seconds,
+            "clip_pre_seconds": camera.clip_pre_seconds,
+            "clip_post_seconds": camera.clip_post_seconds
         }
         for camera in cameras
     ]
@@ -506,12 +527,16 @@ def update_camera(
     update_data = camera_data.model_dump(exclude_unset=True)
 
     previous_analysis = camera.analysis_enabled
+    previous_segment = camera.segment_seconds
 
     for field, value in update_data.items():
         setattr(camera, field, value)
 
     db.commit()
     db.refresh(camera)
+
+    if "segment_seconds" in update_data and previous_segment != camera.segment_seconds:
+        restart_recording(camera_id)
 
     if (
         "analysis_enabled" in update_data
@@ -621,49 +646,52 @@ def update_camera_rtsp(
             status_code=500,
             detail="Unable to update camera RTSP URL"
         )
-    
+
 @app.delete("/api/cameras/{camera_id}")
-def delete_camera(
-    camera_id: int,
-    db: Session = Depends(get_db)
-):
-    camera = db.query(Camera).filter(
-        Camera.id == camera_id
-    ).first()
-
+def delete_camera(camera_id: int, db: Session = Depends(get_db)):
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
     if not camera:
-        raise HTTPException(
-            status_code=404,
-            detail="Camera not found"
-        )
+        raise HTTPException(status_code=404, detail="Camera not found")
 
-    # Stop frame capture for this camera
+    # 1. Resolve the bucket folder BEFORE the DB row is deleted
+    folder = storage.camera_folder(camera_id)          # e.g. "tv"
+
+    # 2. Stop frame capture and recorder, discard pending local chunks
     stop_frame_capture(camera_id)
+    forget_camera(camera_id)        # replaces stop_recording(camera_id)
+    clips.stop_clip_buffer(camera_id)  
 
-    # Remove the camera stream from go2rtc
+
+    # 3. Delete the whole bucket folder, every version
+    storage_cleanup = "ok"
+    try:
+        n = storage.delete_prefix(f"{folder}/")
+        logger.info("Camera %s: deleted %d object version(s) from B2 folder %s/",
+                    camera_id, n, folder)
+        storage._ready_folders.discard(folder)         # see note below
+    except Exception:
+        storage_cleanup = "failed"
+        logger.exception("B2 cleanup failed for camera %s (%s/)", camera_id, folder)
+
+    # 4. go2rtc stream
     try:
         delete_stream(f"cam{camera_id}")
     except Exception:
-        logger.warning(
-            "Could not remove go2rtc stream for camera %s",
-            camera_id
-        )
+        logger.warning("Could not remove go2rtc stream for camera %s", camera_id)
 
-    # Delete camera from database
+    # 5. Database row
     try:
         db.delete(camera)
         db.commit()
     except Exception:
         db.rollback()
         logger.error("Failed to delete camera %s from database", camera_id)
-        raise HTTPException(
-            status_code=500,
-            detail="Unable to delete camera"
-        )
+        raise HTTPException(status_code=500, detail="Unable to delete camera")
 
     return {
         "message": "Camera deleted successfully",
-        "camera_id": camera_id
+        "camera_id": camera_id,
+        "storage_cleanup": storage_cleanup,
     }
 # ---------------- CAMERA GROUP APIs ----------------
 
@@ -934,3 +962,10 @@ def delete_prompt(
     db.commit()
 
     return {"message": "Prompt deleted successfully"}   
+
+@app.post("/api/cameras/{camera_id}/test-violation")
+def test_violation(camera_id: int, violation_type: str = "test_violation"):
+    violation_id = record_violation_async(
+        camera_id, violation_type, description="manual test"
+    )
+    return {"message": "Clip is being created", "violation_id": violation_id}

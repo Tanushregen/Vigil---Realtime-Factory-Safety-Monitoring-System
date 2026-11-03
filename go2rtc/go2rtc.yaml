@@ -6,3 +6,8 @@ rtsp:
   listen: ":8554"
 
 streams: {}
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    - 127.0.0.1:8555

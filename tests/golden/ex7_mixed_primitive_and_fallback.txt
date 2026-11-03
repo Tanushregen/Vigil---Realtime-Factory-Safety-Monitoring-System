@@ -1,0 +1,4 @@
+This rule applies to all cameras in 'press area'.
+An alert is raised when a person is in the loading dock area and a phone is present on their hand, for at least 3 seconds.
+A vision model will also be asked: "Is this person actively operating the forklift (not just standing near it)?"
+Interpretation: In the loading dock, no phone in hand while operating the forklift.

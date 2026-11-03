@@ -1,0 +1,3 @@
+This rule applies to all cameras in 'press area'.
+An alert is raised when they are touching the conveyor belt, for at least 1 seconds.
+Interpretation: No one may physically touch the conveyor belt.

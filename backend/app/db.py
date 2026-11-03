@@ -177,6 +177,9 @@ class SafetyPrompt(Base):
 
 # Create all database tables
 def init_db():
+    # Register the authentication tables with Base
+    import app.auth.models  # noqa: F401
+
     Base.metadata.create_all(bind=engine)
 
 
@@ -187,3 +190,24 @@ def get_db():
         yield db
     finally:
         db.close()
+# Camera health history table
+class CameraHealthHistory(Base):
+    __tablename__ = "camera_health_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    camera_id = Column(
+        Integer,
+        ForeignKey("cameras.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    status = Column(String, nullable=False)
+
+    recorded_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    camera = relationship("Camera")

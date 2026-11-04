@@ -1812,3 +1812,44 @@ button:focus-visible,
     grid-template-columns: 1fr;
   }
 }
+
+/* Camera groups */
+.subsection-title {
+  margin: 8px 0 14px;
+  color: #243b59;
+  font-size: 16px;
+}
+
+.camera-grid + .subsection-title {
+  margin-top: 28px;
+}
+
+.group-mosaic {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  height: 155px;
+  background: #ffffff;
+}
+
+.group-mosaic .camera-image {
+  height: 100%;
+}
+
+.group-status {
+  display: inline-block;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.group-status.online {
+  color: #159765;
+}
+
+.group-status.partial {
+  color: #c27a00;
+}
+
+.group-status.offline {
+  color: #c0392b;
+}

@@ -20,33 +20,115 @@ const zones = [
   'Other',
 ]
 
+function cameraThumbnail(cameraId, thumbnailTime) {
+  return `/go2rtc/api/frame.jpeg?src=cam${cameraId}&t=${thumbnailTime}`
+}
+
+function hideBrokenThumbnail(event) {
+  event.currentTarget.style.display = 'none'
+  event.currentTarget.parentElement.classList.add('no-image')
+}
+
+function CameraCard({ camera, thumbnailTime, onOpen }) {
+  return (
+    <div className="camera-card" onClick={() => onOpen(camera)}>
+      <div className="camera-image">
+        <img
+          src={cameraThumbnail(camera.id, thumbnailTime)}
+          alt={camera.name}
+          onError={hideBrokenThumbnail}
+        />
+
+        <span
+          className={`status ${
+            camera.status === 'online'
+              ? 'online'
+              : camera.status === 'offline'
+                ? 'offline'
+                : 'unknown'
+          }`}
+        >
+          {camera.status || 'Unknown'}
+        </span>
+      </div>
+
+      <div className="camera-info">
+        <h3>{camera.name}</h3>
+        <p>{camera.zone || 'No zone assigned'}</p>
+        <span>Channel {camera.channel}</span>
+      </div>
+    </div>
+  )
+}
+
+// One profile card per camera group, with a 2x2 preview of its cameras
+function GroupCard({ group, members, thumbnailTime, onOpen }) {
+  const onlineCount = members.filter(c => c.status === 'online').length
+  const state =
+    onlineCount === members.length
+      ? 'online'
+      : onlineCount === 0
+        ? 'offline'
+        : 'partial'
+
+  return (
+    <div className="camera-card group-card" onClick={() => onOpen(group.id)}>
+      <div className="group-mosaic">
+        {members.slice(0, 4).map(camera => (
+          <div className="camera-image" key={camera.id}>
+            <img
+              src={cameraThumbnail(camera.id, thumbnailTime)}
+              alt={camera.name}
+              onError={hideBrokenThumbnail}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="camera-info">
+        <h3>{group.name}</h3>
+        <p>
+          {members.length} camera{members.length === 1 ? '' : 's'}
+        </p>
+        <span className={`group-status ${state}`}>
+          {onlineCount} of {members.length} online
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const { user, isAdmin, logout } = useAuth()
   const [cameras, setCameras] = useState([])
+  const [groups, setGroups] = useState([])
   const [selectedZone, setSelectedZone] = useState('All')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [thumbnailTime, setThumbnailTime] = useState(Date.now())
   const [currentPage, setCurrentPage] = useState('cameras')
   const [selectedCamera, setSelectedCamera] = useState(null)
+  const [selectedGroupId, setSelectedGroupId] = useState(null)
 
-  // Fetch cameras from backend
-  async function fetchCameras(zone = selectedZone) {
+  // Fetch every camera and every group from the backend
+  async function fetchCameras() {
     try {
-      const url =
-        zone === 'All'
-          ? '/api/cameras'
-          : `/api/cameras?zone=${encodeURIComponent(zone)}`
+      const [cameraResponse, groupResponse] = await Promise.all([
+        fetch('/api/cameras'),
+        fetch('/api/groups'),
+      ])
 
-      const response = await fetch(url)
-
-      if (!response.ok) {
+      if (!cameraResponse.ok) {
         throw new Error('Unable to load cameras')
       }
 
-      const data = await response.json()
+      setCameras(await cameraResponse.json())
 
-      setCameras(data)
+      // Groups are optional: the camera list still works without them
+      if (groupResponse.ok) {
+        setGroups(await groupResponse.json())
+      }
+
       setError('')
     } catch (err) {
       setError(
@@ -57,14 +139,10 @@ function App() {
     }
   }
 
-  // Fetch cameras whenever selected zone changes
   useEffect(() => {
-    setLoading(true)
-    fetchCameras(selectedZone)
+    fetchCameras()
 
-    const cameraInterval = setInterval(() => {
-      fetchCameras(selectedZone)
-    }, 10000)
+    const cameraInterval = setInterval(fetchCameras, 10000)
 
     const thumbnailInterval = setInterval(() => {
       setThumbnailTime(Date.now())
@@ -74,18 +152,46 @@ function App() {
       clearInterval(cameraInterval)
       clearInterval(thumbnailInterval)
     }
-  }, [selectedZone])
+  }, [])
 
-  // Camera counts
-  const filteredCameras = cameras
+  // The zone filter applies to the cameras shown on the dashboard
+  const filteredCameras =
+    selectedZone === 'All'
+      ? cameras
+      : cameras.filter(camera => camera.zone === selectedZone)
 
-  const onlineCount = cameras.filter(
+  const onlineCount = filteredCameras.filter(
     camera => camera.status === 'online'
   ).length
 
-  const offlineCount = cameras.filter(
+  const offlineCount = filteredCameras.filter(
     camera => camera.status === 'offline'
   ).length
+
+  // Groups with their cameras, limited to the cameras passing the zone filter
+  const cameraById = new Map(cameras.map(camera => [camera.id, camera]))
+  const visibleIds = new Set(filteredCameras.map(camera => camera.id))
+
+  const groupsWithMembers = groups
+    .map(group => ({
+      group,
+      members: group.cameraIds
+        .filter(id => visibleIds.has(id))
+        .map(id => cameraById.get(id)),
+    }))
+    .filter(entry => entry.members.length > 0)
+
+  const groupedIds = new Set(groups.flatMap(group => group.cameraIds))
+  const ungroupedCameras = filteredCameras.filter(
+    camera => !groupedIds.has(camera.id)
+  )
+
+  const selectedGroup = groups.find(group => group.id === selectedGroupId)
+  const selectedGroupCameras = selectedGroup
+    ? selectedGroup.cameraIds
+        .map(id => cameraById.get(id))
+        .filter(Boolean)
+    : []
 
   // Update camera details
   function handleCameraUpdate(updatedCamera) {
@@ -114,6 +220,7 @@ function App() {
   function navigateTo(page) {
     setCurrentPage(page)
     setSelectedCamera(null)
+    setSelectedGroupId(null)
   }
 
   return (
@@ -222,6 +329,47 @@ function App() {
             onDeleted={handleCameraDelete}
             onUpdated={handleCameraUpdate}
           />
+        ) : selectedGroup ? (
+          <>
+            <button
+              className="back-button"
+              onClick={() => setSelectedGroupId(null)}
+            >
+              ← Back to Cameras
+            </button>
+
+            <header className="topbar">
+              <div>
+                <h1>{selectedGroup.name}</h1>
+                <p className="subtitle">
+                  {selectedGroupCameras.length} camera
+                  {selectedGroupCameras.length === 1 ? '' : 's'} in this group
+                </p>
+              </div>
+
+              <button className="refresh-button" onClick={fetchCameras}>
+                Refresh
+              </button>
+            </header>
+
+            {selectedGroupCameras.length === 0 ? (
+              <div className="empty-state">
+                <h3>No cameras in this group</h3>
+                <p>Add cameras to the group from Safety Rules.</p>
+              </div>
+            ) : (
+              <div className="camera-grid">
+                {selectedGroupCameras.map(camera => (
+                  <CameraCard
+                    key={camera.id}
+                    camera={camera}
+                    thumbnailTime={thumbnailTime}
+                    onOpen={setSelectedCamera}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         ) : (
           <>
             <header className="topbar">
@@ -236,7 +384,7 @@ function App() {
                 className="refresh-button"
                 onClick={() => {
                   setLoading(true)
-                  fetchCameras(selectedZone)
+                  fetchCameras()
                 }}
               >
                 Refresh
@@ -295,48 +443,46 @@ function App() {
                   </p>
                 </div>
               ) : (
-                <div className="camera-grid">
-                  {filteredCameras.map(camera => (
-                    <div
-                      className="camera-card"
-                      key={camera.id}
-                      onClick={() => setSelectedCamera(camera)}
-                    >
-                      <div className="camera-image">
-                        <img
-                          src={`/go2rtc/api/frame.jpeg?src=cam${camera.id}&t=${thumbnailTime}`}
-                          alt={camera.name}
-                          onError={event => {
-                            event.currentTarget.style.display = 'none'
-                            event.currentTarget.parentElement.classList.add(
-                              'no-image'
-                            )
-                          }}
-                        />
+                <>
+                  {groupsWithMembers.length > 0 && (
+                    <>
+                      <h3 className="subsection-title">Camera Groups</h3>
 
-                        <span
-                          className={`status ${
-                            camera.status === 'online'
-                              ? 'online'
-                              : camera.status === 'offline'
-                                ? 'offline'
-                                : 'unknown'
-                          }`}
-                        >
-                          {camera.status || 'Unknown'}
-                        </span>
+                      <div className="camera-grid">
+                        {groupsWithMembers.map(({ group, members }) => (
+                          <GroupCard
+                            key={group.id}
+                            group={group}
+                            members={members}
+                            thumbnailTime={thumbnailTime}
+                            onOpen={setSelectedGroupId}
+                          />
+                        ))}
                       </div>
+                    </>
+                  )}
 
-                      <div className="camera-info">
-                        <h3>{camera.name}</h3>
-                        <p>
-                          {camera.zone || 'No zone assigned'}
-                        </p>
-                        <span>Channel {camera.channel}</span>
+                  {ungroupedCameras.length > 0 && (
+                    <>
+                      {groupsWithMembers.length > 0 && (
+                        <h3 className="subsection-title">
+                          Ungrouped Cameras
+                        </h3>
+                      )}
+
+                      <div className="camera-grid">
+                        {ungroupedCameras.map(camera => (
+                          <CameraCard
+                            key={camera.id}
+                            camera={camera}
+                            thumbnailTime={thumbnailTime}
+                            onOpen={setSelectedCamera}
+                          />
+                        ))}
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    </>
+                  )}
+                </>
               )}
             </section>
           </>

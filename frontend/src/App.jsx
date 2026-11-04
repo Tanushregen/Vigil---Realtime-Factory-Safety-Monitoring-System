@@ -16,6 +16,7 @@ import {
   Layers,
   LogOut,
   Menu,
+  ScanEye,
   Settings as SettingsIcon,
   ServerCog,
   ShieldCheck,
@@ -33,6 +34,7 @@ import CameraDetail from './pages/CameraDetail'
 import SafetyRules from './pages/SafetyRules'
 import Settings from './pages/Settings'
 import Overview from './pages/Overview'
+import SceneLog from './pages/SceneLog'
 import Users from './pages/Users'
 import PageHeader from './components/PageHeader'
 import DeleteGroupDialog from './components/DeleteGroupDialog'
@@ -68,6 +70,7 @@ const navItems = [
   { page: 'add-dvr', label: 'Add DVR / NVR', icon: ServerCog },
   { page: 'safety-rules', label: 'Safety Rules', icon: ShieldCheck },
   { page: 'alerts', label: 'Alerts', icon: Bell },
+  { page: 'scene', label: 'Scene Log', icon: ScanEye },
   { page: 'settings', label: 'Settings', icon: SettingsIcon },
   { page: 'users', label: 'Users', icon: UsersIcon, adminOnly: true },
 ]
@@ -427,6 +430,8 @@ function App() {
           <SafetyRules onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'alerts' ? (
           <Alerts />
+        ) : currentPage === 'scene' ? (
+          <SceneLog onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'settings' ? (
           <Settings onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'users' && isAdmin ? (

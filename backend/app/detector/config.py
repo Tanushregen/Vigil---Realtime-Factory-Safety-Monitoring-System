@@ -53,6 +53,11 @@ SEGMENT = _str("DETECTOR_SEGMENT", "0") in ("1", "true", "yes")
 SAM_MODEL = _str("DETECTOR_SAM_MODEL", str(_MODELS_DIR / "sam2.1_t.pt"))
 SEGMENT_DIM = _float("DETECTOR_SEGMENT_DIM", 0.2)   # brightness kept outside the person
 
+# --- Scene log: zones, dwell time, PPE and gate state, saved to the database ---
+SCENE_LOG = _str("SCENE_LOG", "1") in ("1", "true", "yes")
+SCENE_PPE = [item.strip().lower() for item in _str("SCENE_PPE", "helmet,vest").split(",")
+             if item.strip()]
+
 # --- When the cloud model is called -------------------------------------------
 SCAN_INTERVAL = _float("DETECTOR_SCAN_INTERVAL", 3.0)   # people in view: every N s
 IDLE_INTERVAL = _float("DETECTOR_IDLE_INTERVAL", 10.0)  # nobody in view: every N s

@@ -21,6 +21,8 @@ from app import frames
 from app.detector import config, judge, meta_client, trail
 from app.detector.confirm import Confirmer
 from app.detector.rules import Rule, resolve_rules
+from app.detector.scene import SceneTracker
+from app.zones import load_zones
 from app.detector.tracking import CameraTracker, Person
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,9 @@ class CameraWorker(threading.Thread):
 
         self._tracker = CameraTracker()
         self._confirmer = Confirmer()
+        self._scene = SceneTracker(camera_id)
+        self._zones: list = []
+        self._zones_at = 0.0
         self._lock = threading.Lock()          # guards the scan state below
 
         self._rules: list[Rule] = []
@@ -78,8 +83,9 @@ class CameraWorker(threading.Thread):
         while not self.stop_event.is_set():
             try:
                 rules = self._current_rules()
+                zones = self._current_zones()
                 self._heartbeat(rules)
-                if not rules and not config.FALL_DETECTION:
+                if not rules and not zones and not config.FALL_DETECTION:
                     self.stop_event.wait(1.0)       # nothing to check: skip the pose model
                     continue
 
@@ -97,6 +103,7 @@ class CameraWorker(threading.Thread):
                 people = self._tracker.update(frame)
                 trail.record(self.camera_id, last_ts, people,
                              frame.shape[1], frame.shape[0])
+                self._scene.update(last_ts, people, frame.shape[1], frame.shape[0], zones)
                 if not self._pose_ready:
                     self._pose_ready = True
                     logger.info("[detector] cam%s: pose model loaded, tracking people",
@@ -105,11 +112,12 @@ class CameraWorker(threading.Thread):
 
                 if config.FALL_DETECTION:
                     self._check_falls(people)
-                if rules:
-                    self._maybe_scan(frame, people, rules, last_ts)
+                if rules or zones:
+                    self._maybe_scan(frame, people, rules, last_ts, zones)
             except Exception:
                 logger.exception("[detector] cam%s: loop error", self.camera_id)
                 self.stop_event.wait(2.0)
+        self._scene.close_all()
         trail.forget(self.camera_id)
         logger.info("[detector] cam%s: stopped", self.camera_id)
 
@@ -130,7 +138,9 @@ class CameraWorker(threading.Thread):
                       + (" - frames had arrived before" if self._seen_frame else ""))
         else:
             stream = "frames OK - last frame %.0fs ago" % (now - item[1])
-        if not rules:
+        if not rules and self._zones:
+            rule_txt = "no rules, scene log for %d zone(s)" % len(self._zones)
+        elif not rules:
             rule_txt = "no enabled rules apply to this camera - idle"
         else:
             rule_txt = "%d rule(s) apply" % len(rules)
@@ -152,9 +162,22 @@ class CameraWorker(threading.Thread):
             self.status["rules"] = len(self._rules)
         return self._rules
 
+    def _current_zones(self) -> list:
+        now = time.time()
+        if now - self._zones_at > RULES_CACHE_SECONDS:
+            try:
+                self._zones = load_zones(self.camera_id)
+            except Exception:
+                logger.exception("[detector] cam%s: could not read zones", self.camera_id)
+            self._zones_at = now
+            self.status["zones"] = len(self._zones)
+        return self._zones
+
     # ------------------------------------------------------------------ gate
     def _maybe_scan(self, frame: np.ndarray, people: list[Person], rules: list[Rule],
-                    frame_ts: float):
+                    frame_ts: float, zones: list):
+        if not rules and not people and not any(z.kind in ("gate", "exit") for z in zones):
+            return                      # no rule to judge and nothing for the scene log
         now = time.time()
         with self._lock:
             if self._inflight:
@@ -188,7 +211,8 @@ class CameraWorker(threading.Thread):
             self._last_scan_started = now
             self._next_scan_at = now + (config.SCAN_INTERVAL if people else config.IDLE_INTERVAL)
 
-        _scan_pool.submit(self._scan, frame, _snapshot(people), list(rules), frame_ts)
+        _scan_pool.submit(self._scan, frame, _snapshot(people), list(rules), frame_ts,
+                          list(zones))
 
     def _scene_changed(self, frame: np.ndarray) -> bool:
         gray = cv2.cvtColor(cv2.resize(frame, (96, 54)), cv2.COLOR_BGR2GRAY)
@@ -199,10 +223,10 @@ class CameraWorker(threading.Thread):
 
     # ------------------------------------------------------------------ slow path
     def _scan(self, frame: np.ndarray, people: list[Person], rules: list[Rule],
-              frame_ts: float):
+              frame_ts: float, zones: list):
         started = time.time()
         try:
-            result = judge.judge(frame, people, rules)
+            result = judge.judge(frame, people, rules, zones)
         except (meta_client.MetaError, ValueError, KeyError) as e:
             self._scan_failed(e)
             return
@@ -216,6 +240,8 @@ class CameraWorker(threading.Thread):
                                                result.hits)
             for c in confirmed:
                 self._raise_violation(c, frame, people, frame_ts)
+            if result.observations:
+                self._scene.apply_observations(result.observations)
 
             now = time.time()
             self.status.update(

@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { ArrowLeft, Video } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
+import ZoneEditor from '../components/ZoneEditor'
 
 const zones = [
   'Shop floor',
@@ -118,6 +119,8 @@ function CameraDetail({ camera, onBack, onDeleted, onUpdated, onOpenAlerts }) {
           className="live-player"
         />
       </section>
+
+      <ZoneEditor cameraId={camera.id} />
 
       <section className="detail-card">
         <h2>Camera Configuration</h2>

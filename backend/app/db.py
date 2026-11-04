@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
@@ -246,3 +247,41 @@ class CameraHealthHistory(Base):
     )
 
     camera = relationship("Camera")
+
+
+# Zones drawn on a camera's picture (polygon = JSON [[x, y], ...], 0-1 fractions of the frame)
+class CameraZone(Base):
+    __tablename__ = "camera_zones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    kind = Column(String, nullable=False, default="area")     # area | gate | exit
+    polygon = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# Scene log: one row per visit of a tracked person to a zone (UTC times)
+class ZoneVisit(Base):
+    __tablename__ = "zone_visits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    zone_id = Column(Integer, nullable=False, index=True)
+    track_id = Column(Integer, nullable=False)
+    entered_at = Column(DateTime, nullable=False, index=True)
+    last_seen = Column(DateTime, nullable=False)
+    left_at = Column(DateTime, nullable=True)
+    ppe = Column(Text, nullable=True)                          # JSON {"helmet": "yes", ...}
+    ppe_at = Column(DateTime, nullable=True)
+
+
+# Scene log: the state of a gate or exit, written when it changes
+class ZoneState(Base):
+    __tablename__ = "zone_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    zone_id = Column(Integer, nullable=False, index=True)
+    state = Column(String, nullable=False)                     # open | closed | blocked
+    observed_at = Column(DateTime, nullable=False, index=True)

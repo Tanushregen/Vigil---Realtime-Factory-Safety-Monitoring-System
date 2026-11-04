@@ -23,6 +23,7 @@ The Alerts page and Settings tabs are currently placeholders.
 ```text
 backend/
   app/                 FastAPI API and camera/recorder logic
+    alerts/            B2 JSON poller and WhatsApp alert delivery
     auth/              Sign-in, sessions, password recovery, and user management
   vigil.db             SQLite database (created when the backend starts)
 frontend/
@@ -136,6 +137,43 @@ In a new PowerShell terminal from the project root:
 The API is available at `http://127.0.0.1:8000`. Interactive API documentation is at `http://127.0.0.1:8000/docs`.
 
 The SQLite database is stored at `backend/vigil.db` and its tables are initialized when the backend starts.
+
+### Run the B2-to-WhatsApp alert worker
+
+The alert poller runs as a separate process from FastAPI. It watches the B2 bucket prefix configured by
+`B2_JSON_PREFIX`, reads each event JSON, downloads the MP4 object referenced by its `clip_path`, and sends
+the alert through WhatsApp. It does not require local sample video or JSON files.
+
+Configure `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `VIGIL_WA_RECIPIENTS`, `B2_APPLICATION_KEY_ID`,
+`B2_APPLICATION_KEY`, `B2_BUCKET_NAME`, and `B2_ENDPOINT` in the project-root `.env`. Upload each event JSON
+under the configured prefix. Its `clip_path` must be the exact MP4 object key in the same B2 bucket, for example:
+
+```json
+{
+  "event_id": "unique-event-id",
+  "camera_id": "camera01",
+  "violation": "NO_HELMET",
+  "clip_path": "alerts/clips/camera01/event.mp4"
+}
+```
+
+From a separate PowerShell terminal, run a preview first (it fetches and validates the referenced video but
+does not send a WhatsApp message):
+
+```powershell
+Set-Location backend
+..\.venv\Scripts\python -m app.alerts.cli b2-poll
+```
+
+When the preview is correct, start continuous live delivery:
+
+```powershell
+..\.venv\Scripts\python -m app.alerts.cli b2-poll --send --watch 30
+```
+
+Keep this worker process running to process new JSON objects. The SQLite outbox deduplicates events by
+`event_id`, so use a new unique ID for each incident. The worker's `clips` directory and alert outbox database
+are relative to the `backend` working directory.
 
 ### 5. Start the frontend
 

@@ -8,3 +8,8 @@ PyJWT
 python-dotenv
 sqlalchemy
 uvicorn
+pydantic>=2.6,<3
+httpx>=0.27
+python-dotenv>=1.0      # optional: lets the CLI/demo read .env (real environment variables work without it)
+boto3>=1.34
+pytest>=8

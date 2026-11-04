@@ -37,6 +37,25 @@ def full_frame_b64(frame: np.ndarray) -> str:
     return _b64_jpeg(frame, config.FRAME_MAX_SIDE)
 
 
+def isolate(frame: np.ndarray, mask: np.ndarray, person: Person, pad: float = 0.3) -> np.ndarray:
+    """A copy of the frame where, around this person, everything outside the SAM
+    mask is darkened. Only the area the crops can reach is changed."""
+    h, w = frame.shape[:2]
+    x1, y1, x2, y2 = person.box
+    px, py = (x2 - x1) * pad, (y2 - y1) * pad
+    box = _clip_box(x1 - px, y1 - py, x2 + px, y2 + py, w, h)
+    out = frame.copy()
+    if box is None or mask.shape[:2] != (h, w):
+        return out
+    cx1, cy1, cx2, cy2 = box
+    region = frame[cy1:cy2, cx1:cx2]
+    keep = mask[cy1:cy2, cx1:cx2]
+    dimmed = (region * config.SEGMENT_DIM).astype(np.uint8)
+    dimmed[keep] = region[keep]
+    out[cy1:cy2, cx1:cx2] = dimmed
+    return out
+
+
 def person_crop_b64(frame: np.ndarray, person: Person, pad: float = 0.12) -> str | None:
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = person.box

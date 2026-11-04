@@ -47,6 +47,12 @@ POSE_IMGSZ = _int("DETECTOR_IMGSZ", 640)
 POSE_CONF = _float("DETECTOR_CONF", 0.35)
 DETECT_FPS = _float("DETECTOR_FPS", 4.0)    # max local detections/second per camera
 
+# --- Optional: SAM 2.1 cuts each person out before the cloud model sees the crop ---
+# Off by default. Weights download to backend/models/ on first use.
+SEGMENT = _str("DETECTOR_SEGMENT", "0") in ("1", "true", "yes")
+SAM_MODEL = _str("DETECTOR_SAM_MODEL", str(_MODELS_DIR / "sam2.1_t.pt"))
+SEGMENT_DIM = _float("DETECTOR_SEGMENT_DIM", 0.2)   # brightness kept outside the person
+
 # --- When the cloud model is called -------------------------------------------
 SCAN_INTERVAL = _float("DETECTOR_SCAN_INTERVAL", 3.0)   # people in view: every N s
 IDLE_INTERVAL = _float("DETECTOR_IDLE_INTERVAL", 10.0)  # nobody in view: every N s

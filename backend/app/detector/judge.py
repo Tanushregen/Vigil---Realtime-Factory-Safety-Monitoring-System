@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from app.detector import config, crops, meta_client
+from app.detector import config, crops, meta_client, segment
 from app.detector.rules import Rule
 from app.detector.tracking import Person
 
@@ -50,21 +50,29 @@ def build_request(frame: np.ndarray, people: list[Person], rules: list[Rule]) ->
     parts.append({"type": "text", "text": "FULL FRAME of the camera:"})
     image(crops.full_frame_b64(frame))
 
+    chosen = sorted(people, key=lambda p: (p.box[2] - p.box[0]) * (p.box[3] - p.box[1]),
+                    reverse=True)[:config.MAX_TARGETS]
+
+    # Optional SAM 2.1: show the model one lit person on a dimmed background
+    masks = (segment.get_segmenter().person_masks(frame, [p.box for p in chosen])
+             if config.SEGMENT else None)
+    note = " (background dimmed so only this person is lit)" if masks else ""
+
     targets: list[Person] = []
-    for p in sorted(people, key=lambda p: (p.box[2] - p.box[0]) * (p.box[3] - p.box[1]),
-                    reverse=True)[:config.MAX_TARGETS]:
-        body = crops.person_crop_b64(frame, p)
+    for index, p in enumerate(chosen):
+        view = crops.isolate(frame, masks[index], p) if masks else frame
+        body = crops.person_crop_b64(view, p)
         if body is None:
             continue
         targets.append(p)
         b = crops.norm_box(p.box, w, h)
         parts.append({"type": "text", "text":
             f"Target #{p.track_id} (person, posture: {p.posture}) at box "
-            f"[{b['ymin']}, {b['xmin']}, {b['ymax']}, {b['xmax']}] - full-body crop:"})
+            f"[{b['ymin']}, {b['xmin']}, {b['ymax']}, {b['xmax']}] - full-body crop{note}:"})
         image(body)
-        head = crops.head_crop_b64(frame, p)
+        head = crops.head_crop_b64(view, p)
         if head:
-            parts.append({"type": "text", "text": f"Target #{p.track_id} head close-up:"})
+            parts.append({"type": "text", "text": f"Target #{p.track_id} head close-up{note}:"})
             image(head)
 
     if targets:

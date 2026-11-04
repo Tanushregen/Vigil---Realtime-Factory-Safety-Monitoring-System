@@ -9,7 +9,7 @@ from app.health import check_camera_health
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory, Violation, CameraZone, ZoneState, ZoneVisit, ScanStat, MissedEvent
+from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory, Violation, CameraZone, ZoneState, ZoneVisit, ScanStat, MissedEvent, AlertDelivery
 from app.crypto import encrypt_password, decrypt_password
 from app.rtsp import build_urls, validate_rtsp_stream
 from app.schemas import CameraGroupUpdate, DVRCreate,CameraUpdate, CameraManualCreate, CameraRTSPUpdate, SafetyPromptCreate, SafetyPromptEnabledUpdate, CameraGroupCreate, CameraGroupUpdate, SafetyPromptCreate, SafetyPromptUpdate, SafetyPromptEnabledUpdate
@@ -34,6 +34,8 @@ from app.auth import config as auth_config
 from app.auth.dependencies import enforce_authentication
 from app.auth.router import router as auth_router
 from app.metrics_api import router as metrics_router
+from app.notify_api import router as notify_router
+from app import notify
 from app.violations_api import router as violations_router
 from app.scene_api import router as scene_router
 from app.detector.scene import close_stale_visits
@@ -49,6 +51,7 @@ app.include_router(auth_router)
 app.include_router(violations_router)
 app.include_router(scene_router)
 app.include_router(metrics_router)
+app.include_router(notify_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=auth_config.ALLOWED_ORIGINS,
@@ -187,6 +190,7 @@ async def startup():
     start_recordings()
     start_clip_buffers()
     start_detectors()
+    notify.start_report_scheduler()
     health_task = asyncio.create_task(check_camera_health())
     recovery_task = asyncio.create_task(monitor_go2rtc())
     
@@ -733,6 +737,9 @@ def remove_camera(camera: Camera, db: Session) -> dict:
 
     # 5. Alerts (their clips went with the bucket folder) and the database row
     try:
+        db.query(AlertDelivery).filter(AlertDelivery.violation_id.in_(
+            db.query(Violation.id).filter(Violation.camera_id == camera_id)
+        )).delete(synchronize_session=False)
         alerts_deleted = (
             db.query(Violation)
             .filter(Violation.camera_id == camera_id)

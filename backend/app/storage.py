@@ -208,6 +208,15 @@ def upload_bytes(data: bytes, key: str,
     logger.info("Uploaded %s", key)
 
 
+def download_bytes(key: str, max_bytes: int | None = None) -> bytes | None:
+    """The stored object's bytes, or None when it is larger than max_bytes."""
+    response = get_client().get_object(Bucket=_bucket(), Key=key)
+    if max_bytes is not None and (response.get("ContentLength") or 0) > max_bytes:
+        response["Body"].close()
+        return None
+    return response["Body"].read()
+
+
 def upload_json(obj: dict, key: str) -> None:
     upload_bytes(
         json.dumps(obj, indent=2, default=str).encode("utf-8"),

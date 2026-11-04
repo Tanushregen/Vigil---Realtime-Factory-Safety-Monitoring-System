@@ -203,6 +203,19 @@ def record_violation(
         logger.info("[violation] %s: saved (clip=%s, metadata=%s)",
                     violation_id, clip_key, metadata_key)
 
+        # WhatsApp: send the alert with its clip (background; never blocks or fails this)
+        try:
+            from app import notify
+
+            if notify.enabled() and metadata.get("id"):
+                size = clip_path.stat().st_size
+                notify.send_alert_async(
+                    metadata["id"],
+                    clip_path.read_bytes() if size <= notify.MAX_CLIP_BYTES else None)
+        except Exception:
+            logger.warning("[violation] %s: could not start the WhatsApp alert",
+                           violation_id, exc_info=True)
+
         clip_path.unlink(missing_ok=True)   # only after a successful upload
         return metadata
 

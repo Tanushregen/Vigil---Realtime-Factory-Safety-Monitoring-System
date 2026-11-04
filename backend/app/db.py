@@ -257,6 +257,30 @@ class ScanStat(Base):
     completion_tokens = Column(Integer, nullable=False, default=0)
 
 
+# WhatsApp: what happened when an alert was sent (one row per alert)
+class AlertDelivery(Base):
+    __tablename__ = "alert_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    violation_id = Column(Integer, nullable=False, unique=True, index=True)
+    status = Column(String, nullable=False, default="pending")   # pending | sent | partial | failed
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(String, nullable=True)
+    sent_to = Column(Text, nullable=True)                         # JSON list of masked numbers
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+# WhatsApp: one row per day the daily report was sent (day = local date, YYYY-MM-DD)
+class ReportLog(Base):
+    __tablename__ = "report_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    day = Column(String, nullable=False, unique=True, index=True)
+    status = Column(String, nullable=False)                       # sent | partial | failed
+    detail = Column(String, nullable=True)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+
+
 # Metrics: a violation a person saw that VIGIL did not raise (for recall)
 class MissedEvent(Base):
     __tablename__ = "missed_events"

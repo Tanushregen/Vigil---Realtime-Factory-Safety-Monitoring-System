@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import storage
+from app import notify, storage
 from app.db import Camera, CameraGroup, CameraGroupMember, Violation, get_db
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,8 @@ def _groups_by_camera(db: Session, camera_ids: set[int]) -> dict[int, list[dict]
 
 
 def _serialize(
-    row: Violation, camera: Optional[Camera], groups: list[dict]
+    row: Violation, camera: Optional[Camera], groups: list[dict],
+    delivery: Optional[dict] = None,
 ) -> dict:
     return {
         "id": row.id,
@@ -68,6 +69,7 @@ def _serialize(
         "occurred_at": row.occurred_at.astimezone().isoformat(),
         "review": row.review,
         "latency_ms": row.latency_ms,
+        "whatsapp": delivery["status"] if delivery else None,
     }
 
 
@@ -121,6 +123,8 @@ def list_violations(
     }
     groups = _groups_by_camera(db, camera_ids)
 
+    sent = notify.deliveries([row.id for row in rows])
+
     types = [
         value
         for (value,) in db.query(Violation.violation_type)
@@ -133,7 +137,8 @@ def list_violations(
         "total": total,
         "types": types,
         "items": [
-            _serialize(row, cameras.get(row.camera_id), groups.get(row.camera_id, []))
+            _serialize(row, cameras.get(row.camera_id), groups.get(row.camera_id, []),
+                       sent.get(row.id))
             for row in rows
         ],
     }

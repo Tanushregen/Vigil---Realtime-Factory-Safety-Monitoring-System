@@ -129,7 +129,7 @@ def validate_rtsp_stream(rtsp_url: str) -> dict:
                 )
 
             else:
-                error = "Unable to read RTSP stream"
+                error = "Unable to read the stream"
 
             return {
                 "valid": False,

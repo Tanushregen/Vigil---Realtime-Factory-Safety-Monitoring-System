@@ -304,7 +304,7 @@ function App() {
                     >
                       <div className="camera-image">
                         <img
-                          src={`http://127.0.0.1:1984/api/frame.jpeg?src=cam${camera.id}&t=${thumbnailTime}`}
+                          src={`/go2rtc/api/frame.jpeg?src=cam${camera.id}&t=${thumbnailTime}`}
                           alt={camera.name}
                           onError={event => {
                             event.currentTarget.style.display = 'none'

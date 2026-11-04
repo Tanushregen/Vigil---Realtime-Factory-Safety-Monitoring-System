@@ -1,0 +1,145 @@
+.users-card {
+  margin-top: 24px;
+  padding: 22px;
+  background: white;
+  border: 1px solid #e5e9ef;
+  border-radius: 9px;
+}
+
+.users-card h2 {
+  margin: 0 0 18px;
+  font-size: 18px;
+}
+
+.users-card .section-heading h2 {
+  margin: 0;
+}
+
+.users-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.users-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #536174;
+}
+
+.users-form input,
+.users-form select {
+  height: 40px;
+  padding: 0 11px;
+  border: 1px solid #dce2ea;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  color: #202938;
+  background: white;
+}
+
+.users-form label.users-checkbox {
+  flex-direction: row;
+  align-items: center;
+  height: 40px;
+}
+
+.users-checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
+.users-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.users-secondary {
+  padding: 8px 14px;
+  border: 1px solid #dce2ea;
+  border-radius: 6px;
+  color: #243b59;
+  background: white;
+  cursor: pointer;
+}
+
+.users-secondary:hover {
+  background: #f4f6f9;
+}
+
+.users-success {
+  margin-top: 18px;
+  padding: 11px 14px;
+  border-radius: 6px;
+  color: #0f6b48;
+  background: #e8f7f0;
+}
+
+.users-table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.users-table th,
+.users-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #eef1f5;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.users-table th {
+  font-size: 12px;
+  font-weight: 600;
+  color: #778294;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.users-you {
+  color: #778294;
+  font-size: 12px;
+}
+
+.users-badge {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 12px;
+  font-size: 12px;
+  text-transform: capitalize;
+  color: #536174;
+  background: #eef1f5;
+}
+
+.users-badge.admin {
+  color: #1d4597;
+  background: #e6eeff;
+}
+
+.users-badge.active {
+  color: #0f6b48;
+  background: #e8f7f0;
+}
+
+.users-badge.disabled {
+  color: #a52a2a;
+  background: #fdeeee;
+}
+
+.users-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

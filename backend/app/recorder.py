@@ -14,6 +14,7 @@ grep. Make sure logging is configured at INFO level (see main.py notes).
 """
 import logging
 import os
+import queue
 import shutil
 import subprocess
 import threading
@@ -22,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.db import SessionLocal, Camera
-from app import storage
+from app import compress, storage
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,23 @@ SEGMENT_SCAN_INTERVAL = 5  # seconds between "new segment?" checks
 STATUS_INTERVAL = 60       # seconds between recording heartbeat logs
 FILENAME_FORMAT = "%Y-%m-%d_%H-%M-%S"
 
+# H.265 compression of finished chunks (see app/compress.py)
+COMPRESS_ENABLED = os.getenv("RECORD_COMPRESS", "true").strip().lower() \
+    in ("1", "true", "yes", "on")
+COMPRESS_WORKERS = max(1, int(os.getenv("RECORD_COMPRESS_WORKERS", "1")))
+COMPRESS_SCAN_INTERVAL = 10     # seconds between "any chunk to compress?"
+READY_DIRNAME = "ready"         # chunks that are final and waiting to upload
+
 _lock = threading.Lock()
 _workers: dict[int, tuple[threading.Thread, threading.Event]] = {}
 _running: set[int] = set()          # cameras with a live ffmpeg process
 _uploader: threading.Thread | None = None
 _uploader_stop = threading.Event()
+_compress_check_lock = threading.Lock()
+_compress_active: bool | None = None      # decided once, on first use
+_compress_threads: list[threading.Thread] = []
+_compress_queue: "queue.Queue[tuple[int, Path]]" = queue.Queue()
+_compressing: set[str] = set()            # chunks queued or being encoded
 _upload_lock = threading.Lock()          # one upload at a time
 _deleted_cameras: set[int] = set()       # cameras whose files must be dropped
 
@@ -309,10 +322,150 @@ def _upload_one_locked(camera_id: int, path: Path) -> None:
 
 
 def _upload_pending() -> None:
+    """Upload final chunks. With compression on, only chunks in ready/ are
+    final; raw chunks wait for the compressor. With it off, raw chunks are
+    uploaded directly."""
     if not RECORDINGS_DIR.exists():
         return
 
-    ready = 0
+    compress_on = _compression_on()
+    processed = 0
+
+    for cam_dir in sorted(RECORDINGS_DIR.glob("cam*")):
+        try:
+            camera_id = int(cam_dir.name[3:])
+        except ValueError:
+            continue
+        if camera_id in _deleted_cameras:
+            continue
+
+        # (path, must_be_old_enough). Files in ready/ are complete the moment
+        # they appear there, so they need no age check.
+        candidates: list[tuple[Path, bool]] = [
+            (p, False) for p in sorted((cam_dir / READY_DIRNAME).glob("*.mp4"))
+        ]
+
+        if not compress_on:
+            raw = sorted(cam_dir.glob("*.mp4"))
+            # The newest file is still being written while ffmpeg is alive.
+            with _lock:
+                live = camera_id in _running
+            if live and raw:
+                logger.debug("[recorder] cam%s: skipping %s (still being "
+                             "written)", camera_id, raw[-1].name)
+                raw = raw[:-1]
+            candidates += [(p, True) for p in raw]
+
+        for path, check_age in candidates:
+            try:
+                age = time.time() - path.stat().st_mtime
+            except OSError:
+                continue
+            if check_age and age < MIN_FILE_AGE:
+                continue
+            processed += 1
+            _upload_one(camera_id, path)
+
+    if processed:
+        logger.info("[recorder] uploader: processed %d finished segment(s)",
+                    processed)
+
+
+# ---------------- compression (H.265) ----------------
+
+def _compression_on() -> bool:
+    """Decide once whether chunks are compressed before upload."""
+    global _compress_active
+    with _compress_check_lock:
+        if _compress_active is None:
+            if not COMPRESS_ENABLED:
+                logger.info("[recorder] compression: OFF (RECORD_COMPRESS)")
+                _compress_active = False
+            elif not compress.encoder_available():
+                logger.error(
+                    "[recorder] compression: this ffmpeg has no libx265 "
+                    "encoder, so recordings will be uploaded uncompressed. "
+                    "Install a full ffmpeg build or set RECORD_COMPRESS=false")
+                _compress_active = False
+            else:
+                logger.info(
+                    "[recorder] compression: ON (H.265, crf=%s, preset=%s, "
+                    "%d worker(s))", compress.CRF, compress.PRESET,
+                    COMPRESS_WORKERS)
+                _compress_active = True
+        return _compress_active
+
+
+def _compress_one(camera_id: int, src: Path) -> None:
+    """Compress one finished chunk into ready/. On any failure the original
+    chunk is moved to ready/ unchanged, so footage is never lost."""
+    ready_dir = src.parent / READY_DIRNAME
+    dst = ready_dir / src.name
+    try:
+        if camera_id in _deleted_cameras:
+            src.unlink(missing_ok=True)
+            return
+
+        ready_dir.mkdir(exist_ok=True)
+        logger.info("[recorder] cam%s: compressing %s to H.265 (%.1f MB)",
+                    camera_id, src.name, src.stat().st_size / 1e6)
+
+        stats = compress.compress(src, dst)
+
+        mb_in = stats["size_in"] / 1e6
+        mb_out = stats["size_out"] / 1e6
+        if stats["action"] == "compressed":
+            saved = 100 * (1 - stats["size_out"] / stats["size_in"])
+            logger.info("[recorder] cam%s: %s compressed %.1f MB -> %.1f MB "
+                        "(%.0f%% smaller) in %.0fs", camera_id, src.name,
+                        mb_in, mb_out, saved, stats["seconds"])
+            duration = stats.get("duration")
+            if duration and stats["seconds"] > duration:
+                logger.warning(
+                    "[recorder] cam%s: encoding took %.0fs for %.0fs of "
+                    "video - compression is slower than real time and "
+                    "chunks will pile up. Use RECORD_COMPRESS_PRESET="
+                    "ultrafast, longer chunks, or fewer cameras per "
+                    "machine.", camera_id, stats["seconds"], duration)
+        elif stats["action"] == "already_hevc":
+            logger.info("[recorder] cam%s: %s is already H.265, uploading "
+                        "unchanged", camera_id, src.name)
+        else:
+            logger.info("[recorder] cam%s: %s did not get smaller, keeping "
+                        "the original", camera_id, src.name)
+
+    except FileNotFoundError:
+        pass                            # camera deleted while encoding
+    except Exception:
+        logger.exception("[recorder] cam%s: compression of %s failed, "
+                         "uploading the original instead",
+                         camera_id, src.name)
+        try:
+            ready_dir.mkdir(exist_ok=True)
+            os.replace(src, dst)
+        except OSError:
+            pass
+    finally:
+        with _lock:
+            _compressing.discard(str(src))
+        if camera_id in _deleted_cameras:
+            shutil.rmtree(src.parent, ignore_errors=True)
+
+
+def _compress_worker() -> None:
+    while not _uploader_stop.is_set():
+        try:
+            camera_id, path = _compress_queue.get(timeout=2)
+        except queue.Empty:
+            continue
+        _compress_one(camera_id, path)
+
+
+def _compress_pending() -> None:
+    """Queue every finished raw chunk that is not already queued."""
+    if not RECORDINGS_DIR.exists():
+        return
+
     for cam_dir in sorted(RECORDINGS_DIR.glob("cam*")):
         try:
             camera_id = int(cam_dir.name[3:])
@@ -322,27 +475,60 @@ def _upload_pending() -> None:
             continue
 
         files = sorted(cam_dir.glob("*.mp4"))
-
-        # The newest file is still being written while ffmpeg is alive.
         with _lock:
             live = camera_id in _running
         if live and files:
-            logger.debug("[recorder] cam%s: skipping %s (still being written)",
-                         camera_id, files[-1].name)
-            files = files[:-1]
+            files = files[:-1]          # newest one is still being written
 
         for path in files:
-            age = time.time() - path.stat().st_mtime
-            if age < MIN_FILE_AGE:
-                logger.debug("[recorder] cam%s: %s too fresh (%.0fs), "
-                             "waiting", camera_id, path.name, age)
+            try:
+                age = time.time() - path.stat().st_mtime
+            except OSError:
                 continue
-            ready += 1
-            _upload_one(camera_id, path)
+            if age < MIN_FILE_AGE:
+                continue
+            with _lock:
+                if str(path) in _compressing:
+                    continue
+                _compressing.add(str(path))
+            _compress_queue.put((camera_id, path))
 
-    if ready:
-        logger.info("[recorder] uploader: processed %d finished segment(s)",
-                    ready)
+
+def _compressor_loop() -> None:
+    # Remove half-written outputs left by a crash; the raw chunk is intact.
+    for part in RECORDINGS_DIR.glob(f"cam*/{READY_DIRNAME}/*.part"):
+        part.unlink(missing_ok=True)
+
+    last_warning = 0.0
+    while not _uploader_stop.is_set():
+        try:
+            _compress_pending()
+            backlog = _compress_queue.qsize()
+            if backlog >= 5 and time.time() - last_warning > 60:
+                last_warning = time.time()
+                logger.warning("[recorder] compression backlog: %d chunk(s) "
+                               "waiting - encoding is not keeping up",
+                               backlog)
+        except Exception:
+            logger.exception("[recorder] compression scan failed")
+        _uploader_stop.wait(COMPRESS_SCAN_INTERVAL)
+
+
+def _ensure_compressor() -> None:
+    if not _compression_on():
+        return
+    with _lock:
+        if any(t.is_alive() for t in _compress_threads):
+            return
+        _compress_threads.clear()
+        _compress_threads.append(threading.Thread(
+            target=_compressor_loop, daemon=True, name="compressor-scan"))
+        for i in range(COMPRESS_WORKERS):
+            _compress_threads.append(threading.Thread(
+                target=_compress_worker, daemon=True,
+                name=f"compressor-{i + 1}"))
+        for thread in _compress_threads:
+            thread.start()
 
 
 def _uploader_loop() -> None:
@@ -412,6 +598,7 @@ def start_recordings() -> None:
         )
 
     _ensure_uploader()
+    _ensure_compressor()
 
     db = SessionLocal()
     try:

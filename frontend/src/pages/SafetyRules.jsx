@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import "./SafetyRules.css";
 
-const API = "http://127.0.0.1:8000/api";
+// Same-origin through the Vite proxy so the session cookie is sent
+const API = "/api";
 
 const steps = [
   { title: "Camera Groups", icon: "layers", subtitle: "Organize your cameras" },

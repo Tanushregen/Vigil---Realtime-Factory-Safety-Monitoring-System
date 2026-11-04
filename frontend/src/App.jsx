@@ -5,6 +5,8 @@ import CameraDetail from './pages/CameraDetail'
 import SafetyRules from './pages/SafetyRules'
 import Settings from './pages/Settings'
 import Overview from './pages/Overview'
+import Users from './pages/Users'
+import { useAuth } from './auth/authContext'
 import './App.css'
 
 const zones = [
@@ -19,6 +21,7 @@ const zones = [
 ]
 
 function App() {
+  const { user, isAdmin, logout } = useAuth()
   const [cameras, setCameras] = useState([])
   const [selectedZone, setSelectedZone] = useState('All')
   const [loading, setLoading] = useState(true)
@@ -115,15 +118,18 @@ function App() {
 
   return (
     <div className="app">
+      {/* Fixed sidebar */}
       <aside className="sidebar">
         <h2 className="logo">VIGIL</h2>
         <p className="sidebar-label">FACTORY MONITORING</p>
 
         <div
-            className={`nav-item ${currentPage === 'overview' ? 'active' : ''}`}
-            onClick={() => navigateTo('overview')}
+          className={`nav-item ${
+            currentPage === 'overview' ? 'active' : ''
+          }`}
+          onClick={() => navigateTo('overview')}
         >
-            Overview
+          Overview
         </div>
 
         <div
@@ -170,31 +176,45 @@ function App() {
         >
           Settings
         </div>
+
+        {isAdmin && (
+          <div
+            className={`nav-item ${
+              currentPage === 'users' ? 'active' : ''
+            }`}
+            onClick={() => navigateTo('users')}
+          >
+            Users
+          </div>
+        )}
+
+        <div className="sidebar-user">
+          <p className="sidebar-user-name">{user.name}</p>
+          <span className="sidebar-user-role">{user.role}</span>
+
+          <button className="logout-button" onClick={logout}>
+            Log out
+          </button>
+        </div>
       </aside>
 
+      {/* Independently scrollable main content */}
       <main className="main-content">
-
-        {/* Add DVR page */}
+        <div className="main-content-inner">
         {currentPage === 'overview' ? (
           <Overview />
         ) : currentPage === 'add-dvr' ? (
           <AddDvr />
-
-        /* Safety Rules page */
         ) : currentPage === 'safety-rules' ? (
           <SafetyRules />
-
-        /* Alerts page */
         ) : currentPage === 'alerts' ? (
           <div className="placeholder-page">
             <h1>Alerts</h1>
           </div>
-
-        /* Settings page */
         ) : currentPage === 'settings' ? (
           <Settings />
-
-        /* Camera details page */
+        ) : currentPage === 'users' && isAdmin ? (
+          <Users />
         ) : selectedCamera ? (
           <CameraDetail
             camera={selectedCamera}
@@ -202,8 +222,6 @@ function App() {
             onDeleted={handleCameraDelete}
             onUpdated={handleCameraUpdate}
           />
-
-        /* Camera dashboard */
         ) : (
           <>
             <header className="topbar">
@@ -233,16 +251,12 @@ function App() {
 
               <div className="stat-card">
                 <p>Online</p>
-                <h2 className="online-text">
-                  {onlineCount}
-                </h2>
+                <h2 className="online-text">{onlineCount}</h2>
               </div>
 
               <div className="stat-card">
                 <p>Offline</p>
-                <h2 className="offline-text">
-                  {offlineCount}
-                </h2>
+                <h2 className="offline-text">{offlineCount}</h2>
               </div>
             </section>
 
@@ -271,9 +285,7 @@ function App() {
               )}
 
               {loading ? (
-                <p className="empty-message">
-                  Loading cameras...
-                </p>
+                <p className="empty-message">Loading cameras...</p>
               ) : filteredCameras.length === 0 ? (
                 <div className="empty-state">
                   <h3>No cameras found</h3>
@@ -320,9 +332,7 @@ function App() {
                         <p>
                           {camera.zone || 'No zone assigned'}
                         </p>
-                        <span>
-                          Channel {camera.channel}
-                        </span>
+                        <span>Channel {camera.channel}</span>
                       </div>
                     </div>
                   ))}
@@ -331,6 +341,7 @@ function App() {
             </section>
           </>
         )}
+        </div>
       </main>
     </div>
   )

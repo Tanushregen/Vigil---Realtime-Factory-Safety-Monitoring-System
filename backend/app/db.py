@@ -197,6 +197,9 @@ def _add_missing_columns():
 
 
 def init_db():
+    # Register the authentication tables with Base
+    import app.auth.models  # noqa: F401
+
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()
 
@@ -220,3 +223,24 @@ class Violation(Base):
     occurred_at = Column(DateTime, nullable=False, index=True)
     clip_key = Column(String, nullable=False)
     metadata_key = Column(String, nullable=False)
+# Camera health history table
+class CameraHealthHistory(Base):
+    __tablename__ = "camera_health_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    camera_id = Column(
+        Integer,
+        ForeignKey("cameras.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    status = Column(String, nullable=False)
+
+    recorded_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    camera = relationship("Camera")

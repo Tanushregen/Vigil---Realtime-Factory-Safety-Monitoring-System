@@ -1,17 +1,29 @@
 
 import { useEffect, useState } from 'react'
 import {
+  ArrowLeft,
   Bell,
+  Building2,
+  Cctv,
   ChevronRight,
+  CircleCheck,
+  Cog,
+  DoorOpen,
+  Ellipsis,
+  Factory,
+  Flame,
   House,
+  Layers,
   LogOut,
   Menu,
   Settings as SettingsIcon,
   ServerCog,
   ShieldCheck,
+  TriangleAlert,
   UserRound,
   Users as UsersIcon,
   Video,
+  VideoOff,
   X,
 } from 'lucide-react'
 import AddDvr from './pages/AddDvr'
@@ -21,9 +33,11 @@ import SafetyRules from './pages/SafetyRules'
 import Settings from './pages/Settings'
 import Overview from './pages/Overview'
 import Users from './pages/Users'
+import PageHeader from './components/PageHeader'
 import { useAuth } from './auth/authContext'
 import logo from './assets/vigil-logo-light.png'
 import './App.css'
+import './pages/Cameras.css'
 
 const zones = [
   'All',
@@ -35,6 +49,16 @@ const zones = [
   'Office',
   'Other',
 ]
+
+const zoneIcons = {
+  'Shop floor': Factory,
+  'Press area': Cog,
+  Gate: DoorOpen,
+  Storage: Layers,
+  'Fire exit': Flame,
+  Office: Building2,
+  Other: Ellipsis,
+}
 
 const navItems = [
   { page: 'overview', label: 'Overview', icon: House },
@@ -87,7 +111,7 @@ function CameraCard({ camera, thumbnailTime, onOpen }) {
   )
 }
 
-// One profile card per camera group, with a 2x2 preview of its cameras
+// One wide card per camera group: a 2x2 preview on the left, the group on the right
 function GroupCard({ group, members, thumbnailTime, onOpen }) {
   const onlineCount = members.filter(c => c.status === 'online').length
   const state =
@@ -97,30 +121,65 @@ function GroupCard({ group, members, thumbnailTime, onOpen }) {
         ? 'offline'
         : 'partial'
 
+  const badge =
+    state === 'online'
+      ? 'All Online'
+      : state === 'offline'
+        ? 'All Offline'
+        : `${onlineCount} of ${members.length} Online`
+
   return (
-    <div className="camera-card group-card" onClick={() => onOpen(group.id)}>
-      <div className="group-mosaic">
+    <button className="cm-group" onClick={() => onOpen(group.id)}>
+      <div className="cm-group-grid">
         {members.slice(0, 4).map(camera => (
-          <div className="camera-image" key={camera.id}>
+          <div className="cm-tile" key={camera.id}>
             <img
               src={cameraThumbnail(camera.id, thumbnailTime)}
               alt={camera.name}
               onError={hideBrokenThumbnail}
             />
+
+            <span className="cm-tile-label">
+              <i
+                className={
+                  camera.status === 'online'
+                    ? 'on'
+                    : camera.status === 'offline'
+                      ? 'off'
+                      : ''
+                }
+              />
+              {camera.name}
+            </span>
           </div>
         ))}
       </div>
 
-      <div className="camera-info">
-        <h3>{group.name}</h3>
-        <p>
-          {members.length} camera{members.length === 1 ? '' : 's'}
-        </p>
-        <span className={`group-status ${state}`}>
-          {onlineCount} of {members.length} online
+      <div className="cm-group-info">
+        <span className="ov-icon purple">
+          <Building2 size={28} strokeWidth={1.8} />
         </span>
+
+        <div>
+          <h3>{group.name}</h3>
+          <p>
+            {members.length} camera{members.length === 1 ? '' : 's'}
+          </p>
+          <span className={`cm-badge ${state}`}>
+            {state === 'offline' ? (
+              <TriangleAlert size={18} />
+            ) : (
+              <CircleCheck size={18} />
+            )}
+            {badge}
+          </span>
+        </div>
       </div>
-    </div>
+
+      <span className="cm-group-arrow" aria-hidden="true">
+        <ChevronRight size={22} />
+      </span>
+    </button>
   )
 }
 
@@ -325,14 +384,18 @@ function App() {
       {/* Independently scrollable main content */}
       <main
         className={`main-content ${
-          currentPage === 'overview' ? 'main-overview' : ''
+          currentPage === 'overview' ||
+          currentPage === 'add-dvr' ||
+          (currentPage === 'cameras' && !selectedCamera)
+            ? 'main-art'
+            : ''
         }`}
       >
         <div className="main-content-inner">
         {currentPage === 'overview' ? (
           <Overview onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'add-dvr' ? (
-          <AddDvr />
+          <AddDvr onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'safety-rules' ? (
           <SafetyRules />
         ) : currentPage === 'alerts' ? (
@@ -349,27 +412,24 @@ function App() {
             onUpdated={handleCameraUpdate}
           />
         ) : selectedGroup ? (
-          <>
+          <div className="ov-page">
+            <PageHeader
+              icon={Building2}
+              title={selectedGroup.name}
+              subtitle={`${selectedGroupCameras.length} camera${
+                selectedGroupCameras.length === 1 ? '' : 's'
+              } in this group`}
+              crumbs={['VIGIL', 'Cameras', selectedGroup.name]}
+              onOpenAlerts={() => navigateTo('alerts')}
+              onRefresh={() => fetchCameras()}
+            />
+
             <button
-              className="back-button"
+              className="cm-back"
               onClick={() => setSelectedGroupId(null)}
             >
-              ← Back to Cameras
+              <ArrowLeft size={18} /> Back to Cameras
             </button>
-
-            <header className="topbar">
-              <div>
-                <h1>{selectedGroup.name}</h1>
-                <p className="subtitle">
-                  {selectedGroupCameras.length} camera
-                  {selectedGroupCameras.length === 1 ? '' : 's'} in this group
-                </p>
-              </div>
-
-              <button className="refresh-button" onClick={fetchCameras}>
-                Refresh
-              </button>
-            </header>
 
             {selectedGroupCameras.length === 0 ? (
               <div className="empty-state">
@@ -388,86 +448,111 @@ function App() {
                 ))}
               </div>
             )}
-          </>
+          </div>
         ) : (
-          <>
-            <header className="topbar">
-              <div>
-                <h1>Cameras</h1>
-                <p className="subtitle">
-                  Monitor and manage your factory cameras
-                </p>
-              </div>
+          <div className="ov-page">
+            <PageHeader
+              icon={Video}
+              title="Cameras"
+              subtitle="Monitor and manage your factory cameras"
+              crumbs={['VIGIL', 'Cameras']}
+              onOpenAlerts={() => navigateTo('alerts')}
+              onRefresh={() => {
+                setLoading(true)
+                fetchCameras()
+              }}
+              refreshing={loading && cameras.length > 0}
+            />
 
-              <button
-                className="refresh-button"
-                onClick={() => {
-                  setLoading(true)
-                  fetchCameras()
-                }}
-              >
-                Refresh
-              </button>
-            </header>
+            <section className="ov-stats three">
+              <article className="ov-card compact">
+                <div className="ov-card-head">
+                  <span className="ov-icon blue">
+                    <Video size={24} />
+                  </span>
+                  <h3>Total Cameras</h3>
+                </div>
+                <strong className="ov-card-value">
+                  {filteredCameras.length}
+                </strong>
+                <Cctv className="ov-card-art blue" size={64} strokeWidth={1.4} />
+              </article>
 
-            <section className="stats">
-              <div className="stat-card">
-                <p>Total Cameras</p>
-                <h2>{cameras.length}</h2>
-              </div>
+              <article className="ov-card compact">
+                <div className="ov-card-head">
+                  <span className="ov-icon green">
+                    <CircleCheck size={24} />
+                  </span>
+                  <h3>Online</h3>
+                  <span className="ov-dot green" />
+                </div>
+                <strong className="ov-card-value green">{onlineCount}</strong>
+                <Cctv className="ov-card-art green" size={64} strokeWidth={1.4} />
+              </article>
 
-              <div className="stat-card">
-                <p>Online</p>
-                <h2 className="online-text">{onlineCount}</h2>
-              </div>
-
-              <div className="stat-card">
-                <p>Offline</p>
-                <h2 className="offline-text">{offlineCount}</h2>
-              </div>
+              <article className="ov-card compact">
+                <div className="ov-card-head">
+                  <span className="ov-icon red">
+                    <TriangleAlert size={24} />
+                  </span>
+                  <h3>Offline</h3>
+                  <span className="ov-dot red" />
+                </div>
+                <strong className="ov-card-value red">{offlineCount}</strong>
+                <VideoOff
+                  className="ov-card-art red"
+                  size={64}
+                  strokeWidth={1.4}
+                />
+              </article>
             </section>
 
-            <section className="camera-section">
-              <div className="section-heading">
+            <section className="cm-section">
+              <div className="cm-section-head">
                 <h2>Camera List</h2>
-                <span>{filteredCameras.length} cameras</span>
+                <span>
+                  {filteredCameras.length} camera
+                  {filteredCameras.length === 1 ? '' : 's'}
+                </span>
               </div>
 
-              <div className="filters">
-                {zones.map(zone => (
-                  <button
-                    key={zone}
-                    className={`filter-button ${
-                      selectedZone === zone ? 'selected' : ''
-                    }`}
-                    onClick={() => setSelectedZone(zone)}
-                  >
-                    {zone}
-                  </button>
-                ))}
+              <div className="cm-filters">
+                {zones.map(zone => {
+                  const ZoneIcon = zoneIcons[zone]
+
+                  return (
+                    <button
+                      key={zone}
+                      className={selectedZone === zone ? 'selected' : ''}
+                      onClick={() => setSelectedZone(zone)}
+                    >
+                      {ZoneIcon && <ZoneIcon size={18} />}
+                      {zone}
+                    </button>
+                  )
+                })}
               </div>
 
-              {error && (
-                <p className="error-message">{error}</p>
-              )}
+              {error && <p className="error-message">{error}</p>}
 
-              {loading ? (
+              {loading && cameras.length === 0 ? (
                 <p className="empty-message">Loading cameras...</p>
               ) : filteredCameras.length === 0 ? (
                 <div className="empty-state">
                   <h3>No cameras found</h3>
                   <p>
-                    Add a DVR or camera to start monitoring
-                    your factory.
+                    {selectedZone === 'All'
+                      ? 'Add a DVR or camera to start monitoring your factory.'
+                      : `No cameras are assigned to ${selectedZone}.`}
                   </p>
                 </div>
               ) : (
                 <>
                   {groupsWithMembers.length > 0 && (
                     <>
-                      <h3 className="subsection-title">Camera Groups</h3>
+                      <h2 className="cm-subtitle">Camera Groups</h2>
 
-                      <div className="camera-grid">
+                      <div className="cm-groups">
                         {groupsWithMembers.map(({ group, members }) => (
                           <GroupCard
                             key={group.id}
@@ -483,11 +568,11 @@ function App() {
 
                   {ungroupedCameras.length > 0 && (
                     <>
-                      {groupsWithMembers.length > 0 && (
-                        <h3 className="subsection-title">
-                          Ungrouped Cameras
-                        </h3>
-                      )}
+                      <h2 className="cm-subtitle">
+                        {groupsWithMembers.length > 0
+                          ? 'Ungrouped Cameras'
+                          : 'Cameras'}
+                      </h2>
 
                       <div className="camera-grid">
                         {ungroupedCameras.map(camera => (
@@ -504,7 +589,7 @@ function App() {
                 </>
               )}
             </section>
-          </>
+          </div>
         )}
         </div>
       </main>

@@ -202,7 +202,7 @@ p {
   overflow-y: auto;
   overflow-x: hidden;
 }
-.main-content.main-overview {
+.main-content.main-art {
   background: #eef4ff url('./assets/overview-bg.webp') no-repeat top right / cover;
 }
 
@@ -258,7 +258,6 @@ button:disabled {
 
 .refresh-button:hover,
 .save-button:hover,
-.dvr-form button:hover,
 .delete-button:hover {
   opacity: 0.9;
 }
@@ -439,165 +438,8 @@ button:focus-visible,
   padding: 10px;
 }
 
-/* ADD DVR / NVR PAGE */
-
-.form-page {
-  width: 100%;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 10px 20px 30px;
-}
-
-.form-page > h1,
-.form-page > p {
-  text-align: center;
-}
-
-.form-page > p {
-  color: #333333;
-  margin-bottom: 25px;
-}
-
-.form-tabs {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin: 25px 0;
-}
-
-.form-tabs button {
-  padding: 12px 22px;
-  border: 1px solid #d1d5db;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #1e293b;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.form-tabs button.active {
-  background: #1e293b;
-  color: #ffffff;
-  border-color: #1e293b;
-}
-
-.form-tabs button:hover:not(.active) {
-  background: #f1f5f9;
-}
-
-.dvr-form {
-  width: 100%;
-  max-width: 1100px;
-  margin: 0 auto;
-  background: #ffffff;
-  color: #000000;
-  padding: 30px;
-  border: 1px solid #e5e9ef;
-  border-radius: 12px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-}
-/* Lighter text for dropdowns */
-.dvr-form select {
-  color: #888;
-}
-
-/* Lighter text for dropdown options */
-.dvr-form select option {
-  color: #888;
-  background: #fff;
-}
-
-.dvr-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
-  color: #000000;
-}
-
-.dvr-form input,
-.dvr-form select {
-  width: 100%;
-  min-width: 0;
-  padding: 13px;
-  border: 1px solid #dce2ea;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #000000;
-  font-size: 15px;
-  text-align: center;
-}
-
-.dvr-form input::placeholder {
-  color: #888;
-  opacity: 1;
-}
-
-.dvr-form input:disabled {
-  background: #ffffff;
-  color: #000000;
-  opacity: 1;
-}
-
-.dvr-form select option {
-  background: #ffffff;
-  color: #000000;
-}
-
-.dvr-form button {
-  grid-column: 1 / -1;
-  background: #243b59;
-  color: #ffffff;
-  padding: 13px;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 15px;
-}
-
-.dvr-form button:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
-
-@media (max-width: 700px) {
-  .form-page {
-    padding: 10px;
-  }
-
-  .dvr-form {
-    grid-template-columns: 1fr;
-    padding: 20px;
-  }
-
-  .form-tabs {
-    flex-direction: column;
-  }
-
-  .form-tabs button {
-    width: 100%;
-  }
-}
-
 .form-message {
   margin-top: 20px;
-  color: #000000;
-}
-
-.channel-results {
-  margin-top: 25px;
-}
-
-.channel-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 13px;
-  background: #ffffff;
-  border-bottom: 1px solid #e5e9ef;
   color: #000000;
 }
 
@@ -1245,10 +1087,6 @@ button:focus-visible,
 }
 
 @media (max-width: 600px) {
-  .dvr-form {
-    grid-template-columns: 1fr;
-  }
-
   .live-player {
     height: 250px;
   }
@@ -1283,14 +1121,6 @@ button:focus-visible,
     width: 100%;
   }
 
-  .form-tabs {
-    flex-direction: column;
-  }
-
-  .form-tabs button {
-    width: 100%;
-  }
-
   .live-section,
   .detail-card {
     padding: 14px;
@@ -1316,55 +1146,4 @@ button:focus-visible,
   .camera-grid {
     grid-template-columns: 1fr;
   }
-}
-
-/* Camera groups */
-.subsection-title {
-  margin: 8px 0 14px;
-  color: #243b59;
-  font-size: 16px;
-}
-
-.camera-grid + .subsection-title {
-  margin-top: 28px;
-}
-
-.group-mosaic {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  height: 155px;
-  overflow: hidden;
-  background: #ffffff;
-}
-
-.group-mosaic .camera-image {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.group-mosaic .camera-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.group-status {
-  display: inline-block;
-  margin-top: 4px;
-  font-weight: 600;
-}
-
-.group-status.online {
-  color: #159765;
-}
-
-.group-status.partial {
-  color: #c27a00;
-}
-
-.group-status.offline {
-  color: #c0392b;
 }

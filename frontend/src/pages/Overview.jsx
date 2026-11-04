@@ -1,17 +1,15 @@
 import { useEffect, useState } from 'react'
 import {
-  Bell,
   Cctv,
   CircleCheck,
   CircleHelp,
   Factory,
-  House,
-  RefreshCw,
   Server,
   TriangleAlert,
   Video,
   VideoOff,
 } from 'lucide-react'
+import PageHeader from '../components/PageHeader'
 import './Overview.css'
 
 const STATUS_COLORS = {
@@ -72,7 +70,6 @@ function Overview({ onOpenAlerts }) {
   const [cameras, setCameras] = useState([])
   const [dvrs, setDvrs] = useState([])
   const [healthHistory, setHealthHistory] = useState([])
-  const [recentAlerts, setRecentAlerts] = useState(0)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -100,11 +97,6 @@ function Overview({ onOpenAlerts }) {
       setHealthHistory(Array.isArray(historyData) ? historyData : [])
       setError('')
 
-      // The alert badge is optional: a failure here must not break the page
-      fetch('/api/violations?since_hours=24&limit=1')
-        .then(response => (response.ok ? response.json() : null))
-        .then(data => setRecentAlerts(data?.total || 0))
-        .catch(() => {})
     } catch (err) {
       console.error('Overview fetch error:', err)
       setError(err.message || 'Unable to load overview.')
@@ -178,54 +170,15 @@ function Overview({ onOpenAlerts }) {
 
   return (
     <div className="ov-page">
-      {/* Breadcrumb and notifications */}
-      <div className="ov-topline">
-        <nav className="ov-breadcrumb" aria-label="Breadcrumb">
-          <House size={18} />
-          <span>VIGIL</span>
-          <i>/</i>
-          <strong>Dashboard</strong>
-        </nav>
-
-        <button
-          className="ov-bell"
-          onClick={onOpenAlerts}
-          aria-label={
-            recentAlerts
-              ? `${recentAlerts} alerts in the last 24 hours`
-              : 'Alerts'
-          }
-          title={
-            recentAlerts
-              ? `${recentAlerts} alerts in the last 24 hours`
-              : 'No alerts in the last 24 hours'
-          }
-        >
-          <Bell size={21} />
-          {recentAlerts > 0 && <span className="ov-bell-dot" />}
-        </button>
-      </div>
-
-      {/* Page header */}
-      <header className="ov-header">
-        <div className="ov-header-icon">
-          <Factory size={34} strokeWidth={1.7} />
-        </div>
-
-        <div className="ov-header-text">
-          <h1>Factory Overview</h1>
-          <p>Monitor your factory surveillance and camera infrastructure.</p>
-        </div>
-
-        <button
-          className="ov-refresh"
-          onClick={() => fetchOverview(true)}
-          disabled={refreshing}
-        >
-          <RefreshCw size={19} className={refreshing ? 'ov-spin' : ''} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </header>
+      <PageHeader
+        icon={Factory}
+        title="Factory Overview"
+        subtitle="Monitor your factory surveillance and camera infrastructure."
+        crumbs={['VIGIL', 'Dashboard']}
+        onOpenAlerts={onOpenAlerts}
+        onRefresh={() => fetchOverview(true)}
+        refreshing={refreshing}
+      />
 
       {error && (
         <div className="ov-error">

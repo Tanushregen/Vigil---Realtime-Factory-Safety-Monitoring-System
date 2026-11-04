@@ -70,7 +70,12 @@ def record_violation(
     # Explicit arguments win, then the camera's own setting, then the default.
     pre = pre_seconds if pre_seconds is not None else cam_pre
     post = post_seconds if post_seconds is not None else cam_post
-    clip = clips.cut_clip(camera_id, occurred_ts, pre, post)
+    try:
+        clip = clips.cut_clip(camera_id, occurred_ts, pre, post)
+    except Exception:
+        logger.exception("[violation] %s: FAILED - could not cut the clip",
+                         violation_id)
+        raise
     clip_path = clip["path"]
 
     if not clips.camera_exists(camera_id):

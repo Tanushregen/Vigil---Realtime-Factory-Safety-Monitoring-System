@@ -162,6 +162,7 @@ async def monitor_go2rtc():
 
             start_frame_capture()
             start_recordings()
+            start_clip_buffers()
             start_detectors()
 
         except Exception:
@@ -177,6 +178,7 @@ async def startup():
     register_existing_streams()
     start_frame_capture()
     start_recordings()
+    start_clip_buffers()
     start_detectors()
     health_task = asyncio.create_task(check_camera_health())
     recovery_task = asyncio.create_task(monitor_go2rtc())
@@ -193,6 +195,7 @@ async def shutdown():
                 pass
 
     stop_all_detectors()
+    stop_all_clip_buffers()
 
     # Signal all frame-capture threads to stop
     with frame_lock:

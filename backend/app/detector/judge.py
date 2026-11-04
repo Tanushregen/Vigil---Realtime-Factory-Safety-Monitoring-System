@@ -110,7 +110,9 @@ CRITICAL:
 3. box2d uses 0-1000 coordinates, origin top-left: {{"ymin":int,"xmin":int,"ymax":int,"xmax":int}}.
 4. Check EVERY target one by one. When several people break a rule, give one entry
    per person (two people without a helmet means two entries). Never merge them or
-   report only the clearest one."""
+   report only the clearest one.
+5. Fill in "checked" with EVERY target number you were shown, each with the rule ids
+   that target breaks ([] when it breaks none). Every target must appear."""
     else:
         rules_text = ("No safety rules apply to this camera. Set \"violations\" to an "
                       "empty list and only fill in the scene log below.")
@@ -138,11 +140,13 @@ CRITICAL:
             extra_shape += ',"zones":[{"zoneId":"Z<id>","state":"open|closed|blocked|unknown"}]'
         scene_text = "\n".join(lines)
 
+    checked_shape = (',"checked":[{"targetId":<int>,"breaks":["R<id>"]}]'
+                     if (targets and rules) else "")
     parts.append({"type": "text", "text": f"""{rules_text}
 {scene_text}
 
 Reply with JSON exactly in this shape:
-{{"violations":[{{"ruleId":"R<id>","isViolated":true,"confidence":<50-100>,"targetId":<int or null>,"explanation":"<what is visible>","box2d":<object or null>}}],"sceneSummary":"<one short sentence>"{extra_shape}}}"""})
+{{"violations":[{{"ruleId":"R<id>","isViolated":true,"confidence":<50-100>,"targetId":<int or null>,"explanation":"<what is visible>","box2d":<object or null>}}],"sceneSummary":"<one short sentence>"{checked_shape}{extra_shape}}}"""})
     return parts, [p.track_id for p in targets]
 
 
@@ -198,6 +202,9 @@ def _observations(data: dict, track_ids: set[int], zone_ids: set[int]) -> Observ
         return None
 
 
+FILLED_CONFIDENCE = 70    # for people named in "checked" without a full entry
+
+
 def judge(frame: np.ndarray, people: list[Person], rules: list[Rule], zones=None) -> Scan:
     """Raises meta_client.MetaError / ValueError when the answer cannot be used."""
     parts, sent = _build(frame, people, rules, zones)
@@ -227,6 +234,22 @@ def judge(frame: np.ndarray, people: list[Person], rules: list[Rule], zones=None
 
         hits.append(Hit(int(match.group()), target, max(0, min(100, conf)),
                         str(v.get("explanation", ""))[:500], box))
+    # a person the model listed as breaking a rule but gave no entry for
+    have = {(h.rule_id, h.target_id) for h in hits}
+    for row in data.get("checked") or []:
+        if not isinstance(row, dict):
+            continue
+        tid = row.get("targetId")
+        if not isinstance(tid, (int, float)) or int(tid) not in by_track:
+            continue
+        for rid in row.get("breaks") or []:
+            m = re.search(r"\d+", str(rid))
+            if not m or int(m.group()) not in valid_ids or (int(m.group()), int(tid)) in have:
+                continue
+            have.add((int(m.group()), int(tid)))
+            hits.append(Hit(int(m.group()), int(tid), FILLED_CONFIDENCE,
+                            "The model listed this person as breaking the rule.",
+                            crops.norm_box(by_track[int(tid)].box, w, h)))
     gate_ids = {z.id for z in (zones or []) if z.kind in ("gate", "exit")}
     observations = (_observations(data, set(by_track), gate_ids)
                     if config.SCENE_LOG else None)

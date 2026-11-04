@@ -111,10 +111,11 @@ def _draw(img, boxes, highlight, wall_time: float) -> None:
     thick = max(2, round(w / 320))
 
     hl_id = highlight.get("track_id") if highlight else None
+    skip = {hl_id} | {o["track_id"] for o in (highlight or {}).get("also") or []}
 
     for track_id, (x1, y1, x2, y2) in boxes.items():
         p1, p2 = (int(x1 * w), int(y1 * h)), (int(x2 * w), int(y2 * h))
-        if track_id == hl_id:
+        if track_id in skip:
             continue                       # drawn last, on top
         cv2.rectangle(img, p1, p2, BLUE, thin)
         _label(img, f"#{track_id}", p1[0], p1[1], BLUE)
@@ -124,17 +125,25 @@ def _draw(img, boxes, highlight, wall_time: float) -> None:
 
     label = str(highlight.get("label") or "violation")
 
-    if hl_id is not None and hl_id in boxes:
-        x1, y1, x2, y2 = boxes[hl_id]
-        p1, p2 = (int(x1 * w), int(y1 * h)), (int(x2 * w), int(y2 * h))
-        cv2.rectangle(img, p1, p2, RED, thick)
-        _label(img, f"#{hl_id} {label}", p1[0], p1[1], RED)
-    elif hl_id is None and highlight.get("box"):
+    # everyone flagged for this alert: the main person plus any others in the same scan
+    flagged = {}
+    if hl_id is not None:
+        flagged[hl_id] = label
+    for other in highlight.get("also") or []:
+        flagged[other["track_id"]] = str(other.get("label") or label)
+
+    for track_id, text in flagged.items():
+        if track_id in boxes:
+            x1, y1, x2, y2 = boxes[track_id]
+            p1, p2 = (int(x1 * w), int(y1 * h)), (int(x2 * w), int(y2 * h))
+            cv2.rectangle(img, p1, p2, RED, thick)
+            _label(img, f"#{track_id} {text}", p1[0], p1[1], RED)
+
+    if hl_id is None and highlight.get("box"):
         at = highlight.get("at")
         if at is None or at - 2.0 <= wall_time <= at + 4.0:
             b = highlight["box"]                     # 0-1000, top-left origin
-            p1, p2 = (int(b["xmin"] / 1000 * w), int(b["ymin"] / 1000 * h)), \
-                     (int(b["xmax"] / 1000 * w), int(b["ymax"] / 1000 * h))
+            p1, p2 = (int(b["xmin"] / 1000 * w), int(b["ymin"] / 1000 * h)),                      (int(b["xmax"] / 1000 * w), int(b["ymax"] / 1000 * h))
             cv2.rectangle(img, p1, p2, RED, thick)
             _label(img, label, p1[0], p1[1], RED)
 

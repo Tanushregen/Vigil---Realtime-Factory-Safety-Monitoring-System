@@ -238,8 +238,17 @@ class CameraWorker(threading.Thread):
         try:
             confirmed = self._confirmer.update(rules, [p.track_id for p in people],
                                                result.hits)
+            raised_rules = set()
             for c in confirmed:
-                self._raise_violation(c, frame, people, frame_ts)
+                if c.rule.id in raised_rules and c.target_id is not None:
+                    continue    # already tagged in this rule's alert for this scan
+                raised_rules.add(c.rule.id)
+                # tag everyone the model saw breaking the same rule in this scan
+                others = [h for h in result.hits
+                          if h.rule_id == c.rule.id and h.target_id is not None
+                          and h.target_id != c.target_id
+                          and h.confidence >= config.MIN_CONFIDENCE]
+                self._raise_violation(c, frame, people, frame_ts, others)
             if result.observations:
                 self._scene.apply_observations(result.observations)
 
@@ -273,7 +282,7 @@ class CameraWorker(threading.Thread):
             self._inflight = False
 
     def _raise_violation(self, c, frame: np.ndarray, people: list[Person],
-                         frame_ts: float):
+                         frame_ts: float, others=()):
         from app.violations import record_violation_async    # avoid import cycles
 
         posture = next((p.posture for p in people if p.track_id == c.target_id), None)
@@ -295,6 +304,9 @@ class CameraWorker(threading.Thread):
             annotation={"track_id": c.target_id,
                         "label": f"{c.rule.title} {c.hit.confidence}%",
                         "box": c.hit.box if c.target_id is None else None,
+                        "also": [{"track_id": h.target_id,
+                                  "label": f"{c.rule.title} {h.confidence}%"}
+                                 for h in others],
                         "at": frame_ts},
         )
 

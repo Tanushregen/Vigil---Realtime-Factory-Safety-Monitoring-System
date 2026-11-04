@@ -72,6 +72,14 @@ CONFIRM_WINDOW = _int("DETECTOR_CONFIRM_WINDOW", 3)     # ... out of the last N
 MIN_CONFIDENCE = _int("DETECTOR_MIN_CONFIDENCE", 60)    # 0-100, VLM confidence floor
 COOLDOWN_SECONDS = _float("DETECTOR_COOLDOWN", 60.0)
 
+# --- Borderline check: a doubtful alert is re-judged on a short clip first -----
+VERIFY = _str("DETECTOR_VERIFY", "1") in ("1", "true", "yes")
+VERIFY_BELOW = _int("DETECTOR_VERIFY_BELOW", 85)         # confidence under this is "borderline"
+VERIFY_FRAMES = _int("DETECTOR_VERIFY_FRAMES", 6)        # frames sent from the clip
+VERIFY_PRE = _int("DETECTOR_VERIFY_PRE", 2)              # seconds of clip before the moment
+VERIFY_POST = _int("DETECTOR_VERIFY_POST", 2)            # ... and after it
+VERIFY_FAIL_OPEN = _str("DETECTOR_VERIFY_FAIL_OPEN", "1") in ("1", "true", "yes")
+
 # --- Cost of the cloud model (USD per million tokens; 0 = not set, no cost shown)
 META_PRICE_IN = _float("META_PRICE_IN_PER_M", 0.0)
 META_PRICE_OUT = _float("META_PRICE_OUT_PER_M", 0.0)

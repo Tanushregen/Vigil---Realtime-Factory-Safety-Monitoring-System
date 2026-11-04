@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 from app import frames, metrics
-from app.detector import config, judge, meta_client, trail
+from app.detector import config, judge, meta_client, trail, verify
 from app.detector.confirm import Confirmer
 from app.detector.rules import Rule, resolve_rules
 from app.detector.scene import SceneTracker
@@ -28,6 +28,7 @@ from app.detector.tracking import CameraTracker, Person
 logger = logging.getLogger(__name__)
 
 # Shared by all cameras; the real API concurrency limit is in meta_client.
+_verify_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vigil-verify")
 _scan_pool = ThreadPoolExecutor(max_workers=max(4, config.META_MAX_PARALLEL * 2),
                                 thread_name_prefix="detector-scan")
 
@@ -252,7 +253,11 @@ class CameraWorker(threading.Thread):
                           if h.rule_id == c.rule.id and h.target_id is not None
                           and h.target_id != c.target_id
                           and h.confidence >= config.MIN_CONFIDENCE]
-                self._raise_violation(c, frame, people, frame_ts, others)
+                if verify.is_borderline(c.hit.confidence):
+                    _verify_pool.submit(self._verify_then_raise, c, frame, people,
+                                        frame_ts, others)
+                else:
+                    self._raise_violation(c, frame, people, frame_ts, others)
             if result.observations:
                 self._scene.apply_observations(result.observations)
 
@@ -285,8 +290,36 @@ class CameraWorker(threading.Thread):
             self._next_scan_at = time.time() + min(30.0, config.SCAN_INTERVAL * (1 + failures))
             self._inflight = False
 
+    def _verify_then_raise(self, c, frame, people, frame_ts, others):
+        """A borderline hit: look at the seconds around it first, then raise or drop it."""
+        try:
+            v = verify.verify(self.camera_id, c.rule, c.hit, frame_ts)
+            if v.state == "rejected":
+                metrics.record_check(self.camera_id, True)
+                logger.info("[detector] cam%s: '%s' (%d%%) track=%s REJECTED on the clip - %s",
+                            self.camera_id, c.rule.title, c.hit.confidence, c.target_id,
+                            v.explanation)
+                return
+            if v.state == "unavailable":
+                if not config.VERIFY_FAIL_OPEN:
+                    logger.info("[detector] cam%s: '%s' dropped, the clip check was not "
+                                "available", self.camera_id, c.rule.title)
+                    return
+                self._raise_violation(c, frame, people, frame_ts, others,
+                                      verified="unavailable")
+                return
+            metrics.record_check(self.camera_id, False)
+            logger.info("[detector] cam%s: '%s' confirmed on the clip (%d%%)",
+                        self.camera_id, c.rule.title, v.confidence)
+            hit = replace(c.hit, confidence=max(c.hit.confidence, v.confidence),
+                          explanation=(v.explanation or c.hit.explanation))
+            self._raise_violation(replace(c, hit=hit), frame, people, frame_ts, others,
+                                  verified="confirmed")
+        except Exception:
+            logger.exception("[detector] cam%s: clip check crashed", self.camera_id)
+
     def _raise_violation(self, c, frame: np.ndarray, people: list[Person],
-                         frame_ts: float, others=()):
+                         frame_ts: float, others=(), verified: str | None = None):
         from app.violations import record_violation_async    # avoid import cycles
 
         posture = next((p.posture for p in people if p.track_id == c.target_id), None)
@@ -301,7 +334,8 @@ class CameraWorker(threading.Thread):
             prompt_id=c.rule.id,
             extra={"source": "meta_vlm", "model": config.META_MODEL,
                    "rule_scope": c.rule.scope, "rule_text": c.rule.text,
-                   "track_id": c.target_id, "posture": posture, "box2d": c.hit.box},
+                   "track_id": c.target_id, "posture": posture, "box2d": c.hit.box,
+                   "verified_on_clip": verified},
             # the clip is centred on the frame the model judged, not on the
             # moment its (slow) answer came back
             occurred_ts=frame_ts,

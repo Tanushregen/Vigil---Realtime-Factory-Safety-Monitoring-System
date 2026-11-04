@@ -197,13 +197,19 @@ def _add_missing_columns():
                 conn.exec_driver_sql(f"ALTER TABLE cameras ADD COLUMN {name} {col_type}")
 
 
-def _add_violation_columns():
-    wanted = {"review": "VARCHAR", "reviewed_at": "DATETIME", "latency_ms": "INTEGER"}
+def _add_columns(table: str, wanted: dict):
     with engine.begin() as conn:
-        existing = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(violations)")}
+        existing = {r[1] for r in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
         for name, col_type in wanted.items():
             if existing and name not in existing:
-                conn.exec_driver_sql(f"ALTER TABLE violations ADD COLUMN {name} {col_type}")
+                conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}")
+
+
+def _add_violation_columns():
+    _add_columns("violations", {"review": "VARCHAR", "reviewed_at": "DATETIME",
+                                "latency_ms": "INTEGER"})
+    _add_columns("scan_stats", {"checked": "INTEGER NOT NULL DEFAULT 0",
+                                "rejected": "INTEGER NOT NULL DEFAULT 0"})
 
 
 def init_db():
@@ -255,6 +261,8 @@ class ScanStat(Base):
     latency_ms_max = Column(Integer, nullable=False, default=0)
     prompt_tokens = Column(Integer, nullable=False, default=0)
     completion_tokens = Column(Integer, nullable=False, default=0)
+    checked = Column(Integer, nullable=False, default=0)       # borderline alerts re-judged on a clip
+    rejected = Column(Integer, nullable=False, default=0)      # ... that the clip check threw out
 
 
 # WhatsApp: what happened when an alert was sent (one row per alert)

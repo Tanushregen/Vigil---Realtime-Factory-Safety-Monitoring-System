@@ -160,6 +160,7 @@ function Metrics({ onOpenAlerts }) {
                   <th>Scans</th>
                   <th>Avg scan</th>
                   <th>Idle scans saved</th>
+                  <th>Clip check (rejected / checked)</th>
                   <th>Cost / day</th>
                 </tr>
               </thead>
@@ -187,6 +188,11 @@ function Metrics({ onOpenAlerts }) {
                     </td>
                     <td>{seconds(row.scan_latency_avg_ms)}</td>
                     <td>{percent(row.motion_gating_saved)}</td>
+                    <td>
+                      {row.borderline_checked
+                        ? `${row.borderline_rejected} / ${row.borderline_checked}`
+                        : '-'}
+                    </td>
                     <td>{money(row.cost_per_day_usd)}</td>
                   </tr>
                 ))}

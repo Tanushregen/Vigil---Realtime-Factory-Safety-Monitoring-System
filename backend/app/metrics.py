@@ -56,6 +56,29 @@ def record_scan(camera_id: int, ok: bool, latency_s: float = 0.0,
         db.close()
 
 
+def record_check(camera_id: int, rejected: bool) -> None:
+    """Count one borderline alert re-judged on a clip. Never raises."""
+    hour = _hour_start(datetime.now(timezone.utc).replace(tzinfo=None))
+    db = SessionLocal()
+    try:
+        row = (db.query(ScanStat)
+               .filter(ScanStat.camera_id == camera_id, ScanStat.hour == hour).first())
+        if row is None:
+            row = ScanStat(camera_id=camera_id, hour=hour, scans=0, failures=0, skipped=0,
+                           latency_ms_sum=0, latency_ms_max=0, prompt_tokens=0,
+                           completion_tokens=0, checked=0, rejected=0)
+            db.add(row)
+        row.checked += 1
+        if rejected:
+            row.rejected += 1
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("[metrics] could not count a clip check", exc_info=True)
+    finally:
+        db.close()
+
+
 def _percentile(values: list[int], q: float):
     if not values:
         return None
@@ -104,6 +127,7 @@ def summary(since_hours: int = 24, camera_id: int | None = None) -> dict:
                 "missed": 0, "latencies": [],
                 "scans": 0, "failures": 0, "skipped": 0,
                 "scan_ms_sum": 0, "prompt_tokens": 0, "completion_tokens": 0,
+                "checked": 0, "rejected": 0,
             })
 
         for v in violations.all():
@@ -129,6 +153,8 @@ def summary(since_hours: int = 24, camera_id: int | None = None) -> dict:
             e["scan_ms_sum"] += s.latency_ms_sum
             e["prompt_tokens"] += s.prompt_tokens
             e["completion_tokens"] += s.completion_tokens
+            e["checked"] += s.checked or 0
+            e["rejected"] += s.rejected or 0
     finally:
         db.close()
 
@@ -155,6 +181,8 @@ def summary(since_hours: int = 24, camera_id: int | None = None) -> dict:
             "scan_latency_avg_ms": round(e["scan_ms_sum"] / e["scans"]) if e["scans"] else None,
             "idle_scans_avoided": e["skipped"],
             "motion_gating_saved": _ratio(e["skipped"], e["skipped"] + e["scans"]),
+            "borderline_checked": e["checked"],
+            "borderline_rejected": e["rejected"],
             "prompt_tokens": e["prompt_tokens"],
             "completion_tokens": e["completion_tokens"],
             "cost_usd": cost_usd(e["prompt_tokens"], e["completion_tokens"]),
@@ -179,6 +207,8 @@ def summary(since_hours: int = 24, camera_id: int | None = None) -> dict:
             "missed": t_missed,
             "scans": total("scans"),
             "idle_scans_avoided": total("idle_scans_avoided"),
+            "borderline_checked": total("borderline_checked"),
+            "borderline_rejected": total("borderline_rejected"),
             "prompt_tokens": t_prompt,
             "completion_tokens": t_completion,
             "cost_usd": cost_usd(t_prompt, t_completion),

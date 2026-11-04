@@ -14,7 +14,8 @@ const ranges = [
 ]
 
 function typeLabel(type) {
-  return (type || 'unknown').replace(/_/g, ' ')
+  // scene alerts are stored as scene_<what>: show just the "what"
+  return (type || 'unknown').replace(/^scene_/, '').replace(/_/g, ' ')
 }
 
 function timeAgo(isoTime) {
@@ -41,6 +42,7 @@ function Alerts() {
   const [view, setView] = useState('list')
   const [cameraId, setCameraId] = useState('')
   const [violationType, setViolationType] = useState('')
+  const [kind, setKind] = useState('')
   const [hours, setHours] = useState(24)
 
   const [items, setItems] = useState([])
@@ -54,7 +56,7 @@ function Alerts() {
   const [clipUrl, setClipUrl] = useState('')
   const [clipError, setClipError] = useState('')
 
-  const filters = useRef({ groupId, cameraId, violationType, hours })
+  const filters = useRef({ groupId, cameraId, violationType, kind, hours })
 
   const buildUrl = useCallback((offset, limit) => {
     const params = new URLSearchParams({ limit, offset })
@@ -66,6 +68,7 @@ function Alerts() {
     if (current.violationType) {
       params.set('violation_type', current.violationType)
     }
+    if (current.kind) params.set('kind', current.kind)
     if (current.hours) params.set('since_hours', current.hours)
 
     return `/api/violations?${params}`
@@ -96,11 +99,11 @@ function Alerts() {
 
   // Filters changed: start again from the newest page
   useEffect(() => {
-    filters.current = { groupId, cameraId, violationType, hours }
+    filters.current = { groupId, cameraId, violationType, kind, hours }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     load()
-  }, [groupId, cameraId, violationType, hours, load])
+  }, [groupId, cameraId, violationType, kind, hours, load])
 
   // Pick up new violations without a manual refresh
   const countRef = useRef(0)
@@ -237,12 +240,16 @@ function Alerts() {
     return (
       <button
         key={key}
-        className="alert-card"
+        className={`alert-card${item.kind === 'scene' ? ' scene' : ''}`}
         onClick={() => openClip(item)}
       >
-        <span className={`alert-severity ${severity(item.confidence)}`}>
-          {item.confidence == null ? 'n/a' : `${Math.round(item.confidence)}%`}
-        </span>
+        {item.kind === 'scene' ? (
+          <span className="alert-kind">Scene alert</span>
+        ) : (
+          <span className={`alert-severity ${severity(item.confidence)}`}>
+            {item.confidence == null ? 'n/a' : `${Math.round(item.confidence)}%`}
+          </span>
+        )}
 
         <h3>{typeLabel(item.violation_type)}</h3>
         <p className="alert-camera">
@@ -324,6 +331,15 @@ function Alerts() {
                 {camera.name}
               </option>
             ))}
+          </select>
+        </label>
+
+        <label>
+          Source
+          <select value={kind} onChange={event => setKind(event.target.value)}>
+            <option value="">All alerts</option>
+            <option value="rule">Rule alerts</option>
+            <option value="scene">Scene alerts</option>
           </select>
         </label>
 
@@ -433,12 +449,17 @@ function Alerts() {
       {selected && (
         <div className="alert-modal" onClick={closeClip}>
           <div
-            className="alert-modal-card"
+            className={`alert-modal-card${selected.kind === 'scene' ? ' scene' : ''}`}
             onClick={event => event.stopPropagation()}
           >
             <div className="alert-modal-head">
               <div>
-                <h2>{typeLabel(selected.violation_type)}</h2>
+                <h2>
+                  {typeLabel(selected.violation_type)}
+                  {selected.kind === 'scene' && (
+                    <span className="alert-kind inline">Scene alert</span>
+                  )}
+                </h2>
                 <p>
                   {selected.camera_name || 'Deleted camera'}
                   {selected.groups.length > 0 &&

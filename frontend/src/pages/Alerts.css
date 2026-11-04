@@ -434,3 +434,38 @@
   background: #b42318;
   border-color: #b42318;
 }
+
+/* Scene alerts: raised from the scene log (zones, PPE in a zone, gates), in violet */
+.alert-card.scene {
+  border: 1px solid #d9ccff;
+  border-left: 6px solid #7c3aed;
+  background: linear-gradient(135deg, #f7f3ff 0%, #ffffff 70%);
+}
+
+.alert-card.scene:hover,
+.alert-card.scene:focus-visible {
+  box-shadow: 0 16px 38px rgba(124, 58, 237, 0.16);
+}
+
+.alert-kind {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: #7c3aed;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.alert-kind.inline {
+  position: static;
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.alert-modal-card.scene {
+  border-top: 6px solid #7c3aed;
+}

@@ -32,6 +32,7 @@ HOLD = 0.8               # seconds a box is kept after its last observation
 
 BLUE = (216, 99, 23)     # BGR of #1763d8
 RED = (68, 68, 239)      # BGR of #ef4444
+SCENE = (237, 58, 124)   # BGR of #7c3aed, the colour of scene alerts
 WHITE = (255, 255, 255)
 
 
@@ -105,10 +106,29 @@ def _label(img, text: str, x: int, y: int, color) -> None:
     cv2.putText(img, text, (x + 4, top + th + 1), font, scale, WHITE, 1, cv2.LINE_AA)
 
 
+def _mask_zone(img, polygon, name, thick: int) -> None:
+    """Shade the zone (a translucent fill and an outline) and write its name."""
+    h, w = img.shape[:2]
+    pts = np.array([[int(x * w), int(y * h)] for x, y in polygon], np.int32)
+    if len(pts) < 3:
+        return
+    overlay = img.copy()
+    cv2.fillPoly(overlay, [pts], SCENE)
+    cv2.addWeighted(overlay, 0.30, img, 0.70, 0, dst=img)
+    cv2.polylines(img, [pts], True, SCENE, max(2, thick - 1), cv2.LINE_AA)
+    if name:
+        top = pts[pts[:, 1].argmin()]
+        _label(img, str(name), int(top[0]), int(top[1]) + 22, SCENE)
+
+
 def _draw(img, boxes, highlight, wall_time: float) -> None:
     h, w = img.shape[:2]
     thin = max(1, round(w / 640))
     thick = max(2, round(w / 320))
+
+    color = SCENE if highlight and highlight.get("style") == "scene" else RED
+    if highlight and highlight.get("zone"):
+        _mask_zone(img, highlight["zone"], highlight.get("zone_name"), thick)
 
     hl_id = highlight.get("track_id") if highlight else None
     skip = {hl_id} | {o["track_id"] for o in (highlight or {}).get("also") or []}
@@ -136,16 +156,16 @@ def _draw(img, boxes, highlight, wall_time: float) -> None:
         if track_id in boxes:
             x1, y1, x2, y2 = boxes[track_id]
             p1, p2 = (int(x1 * w), int(y1 * h)), (int(x2 * w), int(y2 * h))
-            cv2.rectangle(img, p1, p2, RED, thick)
-            _label(img, f"#{track_id} {text}", p1[0], p1[1], RED)
+            cv2.rectangle(img, p1, p2, color, thick)
+            _label(img, f"#{track_id} {text}", p1[0], p1[1], color)
 
     if hl_id is None and highlight.get("box"):
         at = highlight.get("at")
         if at is None or at - 2.0 <= wall_time <= at + 4.0:
             b = highlight["box"]                     # 0-1000, top-left origin
             p1, p2 = (int(b["xmin"] / 1000 * w), int(b["ymin"] / 1000 * h)),                      (int(b["xmax"] / 1000 * w), int(b["ymax"] / 1000 * h))
-            cv2.rectangle(img, p1, p2, RED, thick)
-            _label(img, label, p1[0], p1[1], RED)
+            cv2.rectangle(img, p1, p2, color, thick)
+            _label(img, label, p1[0], p1[1], color)
 
 
 def annotate_clip(src: Path, dst: Path, timeline, observations, highlight=None) -> dict:

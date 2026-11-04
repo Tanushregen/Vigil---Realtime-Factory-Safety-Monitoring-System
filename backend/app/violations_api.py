@@ -67,6 +67,7 @@ def _serialize(
         # Stored as the server's local time without an offset; send it with the
         # offset so every browser shows the same moment.
         "occurred_at": row.occurred_at.astimezone().isoformat(),
+        "kind": "scene" if (row.violation_type or "").startswith("scene_") else "rule",
         "review": row.review,
         "latency_ms": row.latency_ms,
         "whatsapp": delivery["status"] if delivery else None,
@@ -79,6 +80,7 @@ def list_violations(
     group_id: Optional[str] = None,
     ungrouped: bool = False,
     violation_type: Optional[str] = None,
+    kind: Optional[Literal["rule", "scene"]] = None,
     since_hours: Optional[int] = Query(None, ge=1, le=24 * 365),
     limit: int = Query(30, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -103,6 +105,10 @@ def list_violations(
 
     if violation_type:
         query = query.filter(Violation.violation_type == violation_type)
+    if kind == "scene":
+        query = query.filter(Violation.violation_type.like("scene\\_%", escape="\\"))
+    elif kind == "rule":
+        query = query.filter(~Violation.violation_type.like("scene\\_%", escape="\\"))
     if since_hours:
         query = query.filter(
             Violation.occurred_at >= datetime.now() - timedelta(hours=since_hours)

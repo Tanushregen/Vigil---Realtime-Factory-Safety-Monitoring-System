@@ -43,15 +43,32 @@ class SceneTracker:
         self._open: dict[tuple[int, int], dict] = {}     # (zone id, track id) -> visit
         self._states: dict[int, str] = {}                # zone id -> last recorded state
         self._last_flush = 0.0
+        self._zones: dict[int, object] = {}              # zone id -> Zone (for alert texts)
+        self._blocked: dict[int, int] = {}               # zone id -> blocked readings in a row
+        self._gate_alert_at: dict[int, float] = {}       # zone id -> when it last alerted
 
     # ------------------------------------------------------------ fast loop
-    def update(self, now: float, people, width: int, height: int, zones) -> None:
+    def update(self, now: float, people, width: int, height: int, zones) -> list[dict]:
+        """Returns the scene alerts that came up (see _event)."""
         try:
-            self._update(now, people, width, height, zones)
+            return self._update(now, people, width, height, zones)
         except Exception:
             logger.exception("[scene] cam%s: could not update the scene log", self.camera_id)
+            return []
 
-    def _update(self, now, people, width, height, zones) -> None:
+    def _event(self, kind: str, zone_id: int, violation_type: str, label: str,
+               description: str, track_id: int | None = None) -> dict:
+        zone = self._zones.get(zone_id)
+        return {
+            "kind": kind, "violation_type": violation_type, "label": label,
+            "description": description, "track_id": track_id, "zone_id": zone_id,
+            "zone_name": zone.name if zone else f"Zone {zone_id}",
+            "polygon": [list(p) for p in zone.polygon] if zone else None,
+        }
+
+    def _update(self, now, people, width, height, zones) -> list[dict]:
+        events: list[dict] = []
+        self._zones = {zone.id: zone for zone in zones}
         inside: set[tuple[int, int]] = set()
         for person in people:
             x, y = zone_module.feet_point(person.box, width, height)
@@ -62,11 +79,22 @@ class SceneTracker:
         for key in inside:
             visit = self._open.get(key)
             if visit is None:
-                self._open[key] = {"id": None, "entered": now, "last_seen": now, "ppe": {}}
+                self._open[key] = {"id": None, "entered": now, "last_seen": now, "ppe": {},
+                                   "no_count": {}, "alerted": set()}
             else:
                 visit["last_seen"] = now
                 if visit["id"] is None and now - visit["entered"] >= MIN_VISIT:
                     self._persist(key, visit)
+                limit = config.SCENE_STAY_ALERT_MIN * 60
+                if (config.SCENE_ALERTS and limit > 0 and "stay" not in visit["alerted"]
+                        and now - visit["entered"] >= limit):
+                    visit["alerted"].add("stay")
+                    zone = self._zones.get(key[0])
+                    minutes = round((now - visit["entered"]) / 60)
+                    events.append(self._event(
+                        "overstay", key[0], "scene_overstay", f"#{key[1]} stayed {minutes} min",
+                        f"Person #{key[1]} has been in {zone.name if zone else 'the zone'} "
+                        f"for {minutes} min", key[1]))
 
         zone_ids = {zone.id for zone in zones}
         for key, visit in list(self._open.items()):
@@ -77,6 +105,7 @@ class SceneTracker:
 
         if self._open and now - self._last_flush >= FLUSH_SECONDS:
             self._flush(now)
+        return events
 
     def _persist(self, key: tuple[int, int], visit: dict) -> None:
         """The person has stayed long enough: write the visit to the database."""
@@ -118,14 +147,17 @@ class SceneTracker:
             db.close()
 
     # ------------------------------------------------------------ scan results
-    def apply_observations(self, obs: Observations) -> None:
+    def apply_observations(self, obs: Observations) -> list[dict]:
+        """Saves the scan's observations. Returns the scene alerts they caused."""
         try:
-            self._apply(obs)
+            return self._apply(obs)
         except Exception:
             logger.exception("[scene] cam%s: could not save the scan's observations",
                              self.camera_id)
+            return []
 
-    def _apply(self, obs: Observations) -> None:
+    def _apply(self, obs: Observations) -> list[dict]:
+        events: list[dict] = []
         now = _utc(time.time())
         db = SessionLocal()
         try:
@@ -137,6 +169,20 @@ class SceneTracker:
                 if not known:
                     continue                        # "unclear" keeps what was known before
                 visit["ppe"].update(known)
+                for item, answer in known.items():
+                    if answer != "no":
+                        visit["no_count"][item] = 0       # seen wearing it: start over
+                        continue
+                    visit["no_count"][item] = visit["no_count"].get(item, 0) + 1
+                    if (config.SCENE_ALERTS and item not in visit["alerted"]
+                            and visit["no_count"][item] >= config.SCENE_ALERT_CONFIRM):
+                        visit["alerted"].add(item)
+                        zone = self._zones.get(zone_id)
+                        events.append(self._event(
+                            "ppe_missing", zone_id, f"scene_missing_{item}",
+                            f"#{track_id} no {item}",
+                            f"Person #{track_id} in {zone.name if zone else 'the zone'} "
+                            f"is not wearing {item}", track_id))
                 if visit["id"] is not None:        # a visit not logged yet saves it when it is
                     db.query(ZoneVisit).filter(ZoneVisit.id == visit["id"]).update(
                         {"ppe": json.dumps(visit["ppe"]), "ppe_at": now})
@@ -146,9 +192,24 @@ class SceneTracker:
                     db.add(ZoneState(camera_id=self.camera_id, zone_id=zone_id,
                                      state=state, observed_at=now))
                     self._states[zone_id] = state
+                if state == "blocked":
+                    self._blocked[zone_id] = self._blocked.get(zone_id, 0) + 1
+                    zone = self._zones.get(zone_id)
+                    if (config.SCENE_ALERTS and self._blocked[zone_id] == config.SCENE_ALERT_CONFIRM
+                            and time.time() - self._gate_alert_at.get(zone_id, -1e9)
+                            >= config.SCENE_ALERT_GAP):
+                        self._gate_alert_at[zone_id] = time.time()
+                        kind = "exit" if zone is not None and zone.kind == "exit" else "gate"
+                        name = zone.name if zone else "The gate"
+                        events.append(self._event(
+                            "gate_blocked", zone_id, f"scene_{kind}_blocked",
+                            f"{name} blocked", f"{name} is blocked"))
+                elif state in GATE_STATES:
+                    self._blocked[zone_id] = 0
             db.commit()
         finally:
             db.close()
+        return events
 
     def close_all(self) -> None:
         for key, visit in list(self._open.items()):

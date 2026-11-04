@@ -80,6 +80,12 @@ VERIFY_PRE = _int("DETECTOR_VERIFY_PRE", 2)              # seconds of clip befor
 VERIFY_POST = _int("DETECTOR_VERIFY_POST", 2)            # ... and after it
 VERIFY_FAIL_OPEN = _str("DETECTOR_VERIFY_FAIL_OPEN", "1") in ("1", "true", "yes")
 
+# --- Scene alerts (raised from the scene log: PPE in a zone, blocked gates, overstay)
+SCENE_ALERTS = _str("SCENE_ALERTS", "1") in ("1", "true", "yes")
+SCENE_ALERT_CONFIRM = _int("SCENE_ALERT_CONFIRM", 2)       # readings in a row before an alert
+SCENE_ALERT_GAP = _float("SCENE_ALERT_GAP", 120.0)         # seconds between alerts for one gate
+SCENE_STAY_ALERT_MIN = _float("SCENE_STAY_ALERT_MIN", 0.0) # minutes in a zone before an alert (0 = off)
+
 # --- Factory local time (rule schedules such as "10pm to 5am" use it) ---------
 LOCAL_TZ = _str("VIGIL_LOCAL_TZ", "Asia/Kolkata")
 

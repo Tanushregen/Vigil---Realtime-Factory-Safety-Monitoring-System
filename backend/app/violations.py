@@ -104,7 +104,7 @@ def record_violation(
             from app.detector import trail
 
             seen = trail.window(camera_id, clip["start_ts"] - 1, clip["end_ts"] + 1)
-            if seen or (annotation and annotation.get("box")):
+            if seen or (annotation and (annotation.get("box") or annotation.get("zone"))):
                 annotated = annotate.annotate_clip(
                     clip_path, annotated_path, clip.get("timeline"), seen, annotation)
                 clip_path.unlink(missing_ok=True)       # the boxed clip replaces it

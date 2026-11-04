@@ -105,7 +105,9 @@ class CameraWorker(threading.Thread):
                 people = self._tracker.update(frame)
                 trail.record(self.camera_id, last_ts, people,
                              frame.shape[1], frame.shape[0])
-                self._scene.update(last_ts, people, frame.shape[1], frame.shape[0], zones)
+                for event in self._scene.update(last_ts, people, frame.shape[1],
+                                                frame.shape[0], zones):
+                    self._raise_scene_alert(event, last_ts)
                 if not self._pose_ready:
                     self._pose_ready = True
                     logger.info("[detector] cam%s: pose model loaded, tracking people",
@@ -262,7 +264,8 @@ class CameraWorker(threading.Thread):
                 else:
                     self._raise_violation(c, frame, people, frame_ts, others)
             if result.observations:
-                self._scene.apply_observations(result.observations)
+                for event in self._scene.apply_observations(result.observations):
+                    self._raise_scene_alert(event, frame_ts)
 
             now = time.time()
             self.status.update(
@@ -341,6 +344,25 @@ class CameraWorker(threading.Thread):
                                   verified="confirmed")
         except Exception:
             logger.exception("[detector] cam%s: clip check crashed", self.camera_id)
+
+    def _raise_scene_alert(self, e: dict, frame_ts: float):
+        """An alert from the scene log: the zone is shaded on the clip and the person boxed."""
+        from app.violations import record_violation_async    # avoid import cycles
+
+        logger.info("[detector] cam%s: SCENE ALERT %s in '%s' track=%s - %s",
+                    self.camera_id, e["kind"], e["zone_name"], e["track_id"], e["description"])
+        self.status["violations_raised"] += 1
+        record_violation_async(
+            self.camera_id, e["violation_type"],
+            confidence=None,
+            description=e["description"],
+            extra={"source": "scene", "scene_event": e["kind"], "zone": e["zone_name"],
+                   "zone_id": e["zone_id"], "track_id": e["track_id"]},
+            occurred_ts=frame_ts,
+            annotation={"track_id": e["track_id"], "label": e["label"], "box": None,
+                        "also": [], "at": frame_ts, "zone": e["polygon"],
+                        "zone_name": e["zone_name"], "style": "scene"},
+        )
 
     def _raise_violation(self, c, frame: np.ndarray, people: list[Person],
                          frame_ts: float, others=(), verified: str | None = None):

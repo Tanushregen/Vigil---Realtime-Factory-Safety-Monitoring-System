@@ -3,7 +3,6 @@
 __pycache__/
 *.pyc
 backend/vigil.db
-backend/models/
 
 # Runtime files created by start.sh
 go2rtc-bin

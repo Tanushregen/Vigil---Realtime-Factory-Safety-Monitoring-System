@@ -208,6 +208,15 @@ def upload_bytes(data: bytes, key: str,
     logger.info("Uploaded %s", key)
 
 
+def download_bytes(key: str, max_bytes: int | None = None) -> bytes | None:
+    """The stored object's bytes, or None when it is larger than max_bytes."""
+    response = get_client().get_object(Bucket=_bucket(), Key=key)
+    if max_bytes is not None and (response.get("ContentLength") or 0) > max_bytes:
+        response["Body"].close()
+        return None
+    return response["Body"].read()
+
+
 def upload_json(obj: dict, key: str) -> None:
     upload_bytes(
         json.dumps(obj, indent=2, default=str).encode("utf-8"),
@@ -223,6 +232,28 @@ def presigned_url(key: str, expires: int = 3600) -> str:
         Params={"Bucket": _bucket(), "Key": key},
         ExpiresIn=expires,
     )
+
+
+def delete_object_everywhere(key: str) -> None:
+    """Remove one object together with every stored version of it."""
+    client = get_client()
+    bucket = _bucket()
+
+    versions = []
+    try:
+        paginator = client.get_paginator("list_object_versions")
+        for page in paginator.paginate(Bucket=bucket, Prefix=key):
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", []):
+                if item["Key"] == key:
+                    versions.append(item["VersionId"])
+    except Exception:
+        logger.warning("Could not list versions of %s", key, exc_info=True)
+
+    if versions:
+        for version_id in versions:
+            client.delete_object(Bucket=bucket, Key=key, VersionId=version_id)
+    else:
+        client.delete_object(Bucket=bucket, Key=key)
 
 
 def list_keys(prefix: str = "") -> list[str]:

@@ -10,3 +10,5 @@ sqlalchemy
 uvicorn
 boto3
 ultralytics
+
+tzdata

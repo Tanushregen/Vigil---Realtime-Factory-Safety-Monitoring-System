@@ -32,6 +32,12 @@ META_API_URL = (_str("META_API_URL") or _str("META_LLAMA_API_URL")
                 or "https://api.llama.com/compat/v1").rstrip("/")
 META_MODEL = (_str("META_MODEL") or _str("META_LLAMA_MODEL")
               or "Llama-4-Maverick-17B-128E-Instruct-FP8")
+# Rule compiling can use its own key (and URL / model) so it never shares the live
+# scans' rate limit. Anything left empty falls back to the META_* value.
+COMPILER_API_KEY = _str("COMPILER_API_KEY")
+COMPILER_API_URL = _str("COMPILER_API_URL")
+COMPILER_MODEL = _str("COMPILER_MODEL")
+
 META_TIMEOUT = _float("META_TIMEOUT_SECONDS", 25.0)
 META_RETRIES = _int("META_RETRIES", 2)
 # Max Meta API calls running at the same time across ALL cameras.
@@ -47,6 +53,17 @@ POSE_IMGSZ = _int("DETECTOR_IMGSZ", 640)
 POSE_CONF = _float("DETECTOR_CONF", 0.35)
 DETECT_FPS = _float("DETECTOR_FPS", 4.0)    # max local detections/second per camera
 
+# --- Optional: SAM 2.1 cuts each person out before the cloud model sees the crop ---
+# Off by default. Weights download to backend/models/ on first use.
+SEGMENT = _str("DETECTOR_SEGMENT", "0") in ("1", "true", "yes")
+SAM_MODEL = _str("DETECTOR_SAM_MODEL", str(_MODELS_DIR / "sam2.1_t.pt"))
+SEGMENT_DIM = _float("DETECTOR_SEGMENT_DIM", 0.2)   # brightness kept outside the person
+
+# --- Scene log: zones, dwell time, PPE and gate state, saved to the database ---
+SCENE_LOG = _str("SCENE_LOG", "1") in ("1", "true", "yes")
+SCENE_PPE = [item.strip().lower() for item in _str("SCENE_PPE", "helmet,vest").split(",")
+             if item.strip()]
+
 # --- When the cloud model is called -------------------------------------------
 SCAN_INTERVAL = _float("DETECTOR_SCAN_INTERVAL", 3.0)   # people in view: every N s
 IDLE_INTERVAL = _float("DETECTOR_IDLE_INTERVAL", 10.0)  # nobody in view: every N s
@@ -60,6 +77,37 @@ CONFIRM_HITS = _int("DETECTOR_CONFIRM_HITS", 2)         # K positive results ...
 CONFIRM_WINDOW = _int("DETECTOR_CONFIRM_WINDOW", 3)     # ... out of the last N
 MIN_CONFIDENCE = _int("DETECTOR_MIN_CONFIDENCE", 60)    # 0-100, VLM confidence floor
 COOLDOWN_SECONDS = _float("DETECTOR_COOLDOWN", 60.0)
+
+# --- Borderline check: a doubtful alert is re-judged on a short clip first -----
+VERIFY = _str("DETECTOR_VERIFY", "1") in ("1", "true", "yes")
+VERIFY_BELOW = _int("DETECTOR_VERIFY_BELOW", 85)         # confidence under this is "borderline"
+VERIFY_FRAMES = _int("DETECTOR_VERIFY_FRAMES", 6)        # frames sent from the clip
+VERIFY_PRE = _int("DETECTOR_VERIFY_PRE", 2)              # seconds of clip before the moment
+VERIFY_POST = _int("DETECTOR_VERIFY_POST", 2)            # ... and after it
+VERIFY_FAIL_OPEN = _str("DETECTOR_VERIFY_FAIL_OPEN", "1") in ("1", "true", "yes")
+
+# --- Scene alerts (raised from the scene log: PPE in a zone, blocked gates, overstay)
+SCENE_ALERTS = _str("SCENE_ALERTS", "1") in ("1", "true", "yes")
+SCENE_ALERT_CONFIRM = _int("SCENE_ALERT_CONFIRM", 2)       # readings in a row before an alert
+SCENE_ALERT_GAP = _float("SCENE_ALERT_GAP", 120.0)         # seconds between alerts for one gate
+SCENE_STAY_ALERT_MIN = _float("SCENE_STAY_ALERT_MIN", 0.0) # minutes in a zone before an alert (0 = off)
+
+# A person standing in a marked work area raises a "zone entry" scene alert with a clip
+SCENE_ZONE_ALERTS = _str("SCENE_ZONE_ALERTS", "1") in ("1", "true", "yes")
+SCENE_ENTRY_SECONDS = _float("SCENE_ENTRY_SECONDS", 3.0)    # seconds in the zone before the alert
+SCENE_ENTRY_GAP = _float("SCENE_ENTRY_GAP", 60.0)           # seconds between entry alerts for one zone
+
+# --- Storage: keep to events and short clips. 0 days = keep forever (nothing is deleted).
+CLIP_RETENTION_DAYS = _int("CLIP_RETENTION_DAYS", 0)
+RECORDING_RETENTION_DAYS = _int("RECORDING_RETENTION_DAYS", 0)
+RECORDING_ENABLED = _str("RECORDING_ENABLED", "1") in ("1", "true", "yes")
+
+# --- Factory local time (rule schedules such as "10pm to 5am" use it) ---------
+LOCAL_TZ = _str("VIGIL_LOCAL_TZ", "Asia/Kolkata")
+
+# --- Cost of the cloud model (USD per million tokens; 0 = not set, no cost shown)
+META_PRICE_IN = _float("META_PRICE_IN_PER_M", 0.0)
+META_PRICE_OUT = _float("META_PRICE_OUT_PER_M", 0.0)
 
 # --- Local fall alert (no cloud call). Off by default: only user rules fire. --
 FALL_DETECTION = _str("DETECTOR_FALL_DETECTION", "0") in ("1", "true", "yes")

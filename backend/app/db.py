@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
@@ -176,6 +177,8 @@ class SafetyPrompt(Base):
 
     enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Compiled form of the rule text (JSON, see app/rule_compiler.py); only used once confirmed
+    compiled = Column(Text, nullable=True)
 
     group = relationship("CameraGroup", back_populates="prompts")
     camera = relationship("Camera", back_populates="safety_prompts")
@@ -196,12 +199,32 @@ def _add_missing_columns():
                 conn.exec_driver_sql(f"ALTER TABLE cameras ADD COLUMN {name} {col_type}")
 
 
+def _add_columns(table: str, wanted: dict):
+    with engine.begin() as conn:
+        existing = {r[1] for r in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+        for name, col_type in wanted.items():
+            if existing and name not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}")
+
+
+def _add_violation_columns():
+    _add_columns("violations", {"review": "VARCHAR", "reviewed_at": "DATETIME",
+                                "latency_ms": "INTEGER"})
+    _add_columns("safety_prompts", {"compiled": "TEXT"})
+    _add_columns("camera_zones", {"alert_on_entry": "BOOLEAN NOT NULL DEFAULT 1"})
+    _add_columns("violations", {"zone_id": "INTEGER", "visit_id": "INTEGER"})
+    _add_columns("alert_deliveries", {"message_ids": "TEXT", "receipts": "TEXT"})
+    _add_columns("scan_stats", {"checked": "INTEGER NOT NULL DEFAULT 0",
+                                "rejected": "INTEGER NOT NULL DEFAULT 0"})
+
+
 def init_db():
     # Register the authentication tables with Base
     import app.auth.models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()
+    _add_violation_columns()
 
 
 # Database dependency for FastAPI
@@ -223,6 +246,79 @@ class Violation(Base):
     occurred_at = Column(DateTime, nullable=False, index=True)
     clip_key = Column(String, nullable=False)
     metadata_key = Column(String, nullable=False)
+    # Metrics: a person's verdict on the alert ("true" = real, "false" = false alert)
+    review = Column(String, nullable=True, index=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    # milliseconds from the frame the model judged to the alert being raised
+    latency_ms = Column(Integer, nullable=True)
+    # Scene alerts: the zone and the zone visit the clip belongs to
+    zone_id = Column(Integer, nullable=True, index=True)
+    visit_id = Column(Integer, nullable=True, index=True)
+
+
+# Metrics: hourly counters of the model scans of one camera (UTC hour start)
+class ScanStat(Base):
+    __tablename__ = "scan_stats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    hour = Column(DateTime, nullable=False, index=True)
+    scans = Column(Integer, nullable=False, default=0)
+    failures = Column(Integer, nullable=False, default=0)
+    skipped = Column(Integer, nullable=False, default=0)       # idle scans motion gating avoided
+    latency_ms_sum = Column(Integer, nullable=False, default=0)
+    latency_ms_max = Column(Integer, nullable=False, default=0)
+    prompt_tokens = Column(Integer, nullable=False, default=0)
+    completion_tokens = Column(Integer, nullable=False, default=0)
+    checked = Column(Integer, nullable=False, default=0)       # borderline alerts re-judged on a clip
+    rejected = Column(Integer, nullable=False, default=0)      # ... that the clip check threw out
+
+
+# Settings changed on the Settings page (only values that differ from the default)
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=False)                          # JSON
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+# WhatsApp: what happened when an alert was sent (one row per alert)
+class AlertDelivery(Base):
+    __tablename__ = "alert_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    violation_id = Column(Integer, nullable=False, unique=True, index=True)
+    status = Column(String, nullable=False, default="pending")   # pending | sent | partial | failed
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(String, nullable=True)
+    sent_to = Column(Text, nullable=True)                         # JSON list of masked numbers
+    message_ids = Column(Text, nullable=True)                     # JSON {WhatsApp message id: masked number}
+    receipts = Column(Text, nullable=True)                        # JSON {masked number: sent|delivered|read|failed}
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+# WhatsApp: one row per day the daily report was sent (day = local date, YYYY-MM-DD)
+class ReportLog(Base):
+    __tablename__ = "report_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    day = Column(String, nullable=False, unique=True, index=True)
+    status = Column(String, nullable=False)                       # sent | partial | failed
+    detail = Column(String, nullable=True)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+
+
+# Metrics: a violation a person saw that VIGIL did not raise (for recall)
+class MissedEvent(Base):
+    __tablename__ = "missed_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    violation_type = Column(String, nullable=True)
+    note = Column(String, nullable=True)
+    occurred_at = Column(DateTime, nullable=False, index=True)   # server local time
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # Camera health history table
@@ -246,3 +342,43 @@ class CameraHealthHistory(Base):
     )
 
     camera = relationship("Camera")
+
+
+# Zones drawn on a camera's picture (polygon = JSON [[x, y], ...], 0-1 fractions of the frame)
+class CameraZone(Base):
+    __tablename__ = "camera_zones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    kind = Column(String, nullable=False, default="area")     # area | gate | exit
+    polygon = Column(Text, nullable=False)
+    # A person staying in an "area" zone raises a scene alert with a clip
+    alert_on_entry = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# Scene log: one row per visit of a tracked person to a zone (UTC times)
+class ZoneVisit(Base):
+    __tablename__ = "zone_visits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    zone_id = Column(Integer, nullable=False, index=True)
+    track_id = Column(Integer, nullable=False)
+    entered_at = Column(DateTime, nullable=False, index=True)
+    last_seen = Column(DateTime, nullable=False)
+    left_at = Column(DateTime, nullable=True)
+    ppe = Column(Text, nullable=True)                          # JSON {"helmet": "yes", ...}
+    ppe_at = Column(DateTime, nullable=True)
+
+
+# Scene log: the state of a gate or exit, written when it changes
+class ZoneState(Base):
+    __tablename__ = "zone_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    zone_id = Column(Integer, nullable=False, index=True)
+    state = Column(String, nullable=False)                     # open | closed | blocked
+    observed_at = Column(DateTime, nullable=False, index=True)

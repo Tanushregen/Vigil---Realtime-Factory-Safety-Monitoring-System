@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import PageHeader from "../components/PageHeader";
+import DeleteGroupDialog from "../components/DeleteGroupDialog";
 import "./SafetyRules.css";
 
 // Same-origin through the Vite proxy so the session cookie is sent
@@ -36,6 +37,11 @@ export default function SafetyRules({ onOpenAlerts }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const [compilingId, setCompilingId] = useState(null);
+  const [groupToDelete, setGroupToDelete] = useState(null);
+  const [deletingGroup, setDeletingGroup] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     loadData();
@@ -153,15 +159,37 @@ export default function SafetyRules({ onOpenAlerts }) {
     }
   }
 
-  async function deleteGroup(id) {
-    if (!window.confirm("Delete this group?")) return;
+  function deleteGroup(id) {
+    const group = groups.find((item) => item.id === id);
+    if (!group) return;
+
+    setDeleteError("");
+    setGroupToDelete(group);
+  }
+
+  async function confirmDeleteGroup(deleteCameras) {
+    const group = groupToDelete;
+    if (!group) return;
+
+    setDeletingGroup(true);
+    setDeleteError("");
 
     try {
-      await request(`/groups/${id}`, { method: "DELETE" });
+      await request(`/groups/${group.id}?delete_cameras=${deleteCameras}`, {
+        method: "DELETE",
+      });
+
+      if (editingGroupId === group.id) resetGroupForm();
+
+      setGroupToDelete(null);
       await loadData();
-      setSuccess("Group deleted.");
+      setSuccess(
+        deleteCameras ? "Group and its cameras deleted." : "Group deleted."
+      );
     } catch (err) {
-      setError(err.message);
+      setDeleteError(err.message);
+    } finally {
+      setDeletingGroup(false);
     }
   }
 
@@ -379,6 +407,107 @@ export default function SafetyRules({ onOpenAlerts }) {
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  // Turn the plain-English rule into a schedule / zone / duration the detector enforces
+  async function compilePrompt(prompt) {
+    setCompilingId(prompt.id);
+    setError("");
+    try {
+      await request(`/prompts/${prompt.id}/compile`, { method: "POST" });
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCompilingId(null);
+    }
+  }
+
+  async function confirmCompiled(prompt) {
+    try {
+      await request(`/prompts/${prompt.id}/compile/confirm`, { method: "POST" });
+      await loadData();
+      setSuccess("The compiled rule is now in effect.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function discardCompiled(prompt) {
+    try {
+      await request(`/prompts/${prompt.id}/compile`, { method: "DELETE" });
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function renderCompiled(prompt) {
+    const compiled = prompt.compiled && !prompt.compiled.stale ? prompt.compiled : null;
+    const busy = compilingId === prompt.id;
+
+    if (!compiled) {
+      return (
+        <div className="sr-compiled">
+          <button
+            type="button"
+            className="sr-link"
+            disabled={busy}
+            onClick={() => compilePrompt(prompt)}
+          >
+            {busy ? "Compiling..." : "Compile rule"}
+          </button>
+          <span className="sr-compiled-hint">
+            Reads times, zones and durations out of the text.
+            {prompt.compiled?.stale && " The text changed since it was last compiled."}
+          </span>
+        </div>
+      );
+    }
+
+    const active = compiled.status === "active";
+
+    return (
+      <div className={`sr-compiled ${active ? "active" : "pending"}`}>
+        <p className="sr-compiled-note">
+          <strong>{active ? "In effect:" : "Check this reading:"}</strong>{" "}
+          {compiled.interpretation_note}
+        </p>
+
+        <p className="sr-compiled-chips">
+          <span>
+            {compiled.schedule
+              ? `Only ${compiled.schedule.start} to ${compiled.schedule.end}`
+              : "At any time"}
+          </span>
+          <span>{compiled.zone ? `In zone: ${compiled.zone.replace(/_/g, " ")}` : "Anywhere in view"}</span>
+          <span>
+            {compiled.duration_sec > 0
+              ? `Lasting ${compiled.duration_sec} s or more`
+              : "No minimum time"}
+          </span>
+        </p>
+
+        {(compiled.warnings || []).map((warning) => (
+          <p key={warning} className="sr-compiled-warning">{warning}</p>
+        ))}
+
+        <div className="sr-compiled-actions">
+          {!active && (
+            <button type="button" className="sr-link" onClick={() => confirmCompiled(prompt)}>
+              Confirm and use
+            </button>
+          )}
+          <button
+            type="button"
+            className="sr-link sr-link-muted"
+            onClick={() => discardCompiled(prompt)}
+          >
+            {active ? "Remove" : "Discard"}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   async function deletePrompt(id) {
@@ -896,6 +1025,7 @@ export default function SafetyRules({ onOpenAlerts }) {
                 </p>
 
                 <p className="sr-row-text">{prompt.text}</p>
+                {renderCompiled(prompt)}
               </div>
 
               <div className="sr-row-actions">
@@ -927,6 +1057,17 @@ export default function SafetyRules({ onOpenAlerts }) {
           ))
         )}
       </div>
+
+      {groupToDelete && (
+        <DeleteGroupDialog
+          groupName={groupToDelete.name}
+          cameraNames={groupToDelete.cameraIds.map((id) => cameraName(id))}
+          busy={deletingGroup}
+          error={deleteError}
+          onCancel={() => setGroupToDelete(null)}
+          onConfirm={confirmDeleteGroup}
+        />
+      )}
     </div>
   );
 }

@@ -9,7 +9,7 @@ from app.health import check_camera_health
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory
+from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory, Violation, CameraZone, ZoneState, ZoneVisit, ScanStat, MissedEvent, AlertDelivery
 from app.crypto import encrypt_password, decrypt_password
 from app.rtsp import build_urls, validate_rtsp_stream
 from app.schemas import CameraGroupUpdate, DVRCreate,CameraUpdate, CameraManualCreate, CameraRTSPUpdate, SafetyPromptCreate, SafetyPromptEnabledUpdate, CameraGroupCreate, CameraGroupUpdate, SafetyPromptCreate, SafetyPromptUpdate, SafetyPromptEnabledUpdate
@@ -17,7 +17,7 @@ from app.go2rtc import register_stream, delete_stream
 from app.frames import capture_threads, stop_events
 from app.recorder import start_recordings, stop_recording, stop_all_recordings, restart_recording
 from app.clips import start_clip_buffers, stop_clip_buffer, stop_all_clip_buffers
-from app.violations import record_violation_async
+from app.violations import record_violation_async, purge_orphan_violations
 from app.detector import start_detectors, stop_detector, stop_all_detectors, get_status as get_detector_status
     
 from app import storage
@@ -33,7 +33,17 @@ logging.basicConfig(
 from app.auth import config as auth_config
 from app.auth.dependencies import enforce_authentication
 from app.auth.router import router as auth_router
+from app.metrics_api import router as metrics_router
+from app.notify_api import router as notify_router
+from app.rules_api import router as rules_router, compiled_view
+from app.whatsapp_webhook import router as whatsapp_webhook_router
+from app.settings_api import router as settings_router
+from app.recorders_api import router as recorders_router
+from app import retention, settings_store
+from app import notify
 from app.violations_api import router as violations_router
+from app.scene_api import router as scene_router
+from app.detector.scene import close_stale_visits
 
 app = FastAPI(
     title="VIGIL API",
@@ -44,6 +54,13 @@ app = FastAPI(
 )
 app.include_router(auth_router)
 app.include_router(violations_router)
+app.include_router(scene_router)
+app.include_router(metrics_router)
+app.include_router(notify_router)
+app.include_router(rules_router)
+app.include_router(whatsapp_webhook_router)
+app.include_router(settings_router)
+app.include_router(recorders_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=auth_config.ALLOWED_ORIGINS,
@@ -175,11 +192,16 @@ async def startup():
     global health_task,recovery_task
 
     init_db()
+    settings_store.load_overrides()          # values changed on the Settings page win over .env
+    purge_orphan_violations()
+    close_stale_visits()
     register_existing_streams()
     start_frame_capture()
     start_recordings()
+    retention.start_scheduler()
     start_clip_buffers()
     start_detectors()
+    notify.start_report_scheduler()
     health_task = asyncio.create_task(check_camera_health())
     recovery_task = asyncio.create_task(monitor_go2rtc())
     
@@ -691,11 +713,11 @@ def update_camera_rtsp(
             detail="Unable to update camera RTSP URL"
         )
 
-@app.delete("/api/cameras/{camera_id}")
-def delete_camera(camera_id: int, db: Session = Depends(get_db)):
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
-    if not camera:
-        raise HTTPException(status_code=404, detail="Camera not found")
+def remove_camera(camera: Camera, db: Session) -> dict:
+    """Delete a camera and everything that belongs to it: its processes, its
+    bucket folder (recordings, clips and metadata), its go2rtc stream, its
+    alerts and the database row. Returns what was cleaned up."""
+    camera_id = camera.id
 
     # 1. Resolve the bucket folder BEFORE the DB row is deleted
     folder = storage.camera_folder(camera_id)          # e.g. "tv"
@@ -724,8 +746,19 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)):
     except Exception:
         logger.warning("Could not remove go2rtc stream for camera %s", camera_id)
 
-    # 5. Database row
+    # 5. Alerts (their clips went with the bucket folder) and the database row
     try:
+        db.query(AlertDelivery).filter(AlertDelivery.violation_id.in_(
+            db.query(Violation.id).filter(Violation.camera_id == camera_id)
+        )).delete(synchronize_session=False)
+        alerts_deleted = (
+            db.query(Violation)
+            .filter(Violation.camera_id == camera_id)
+            .delete(synchronize_session=False)
+        )
+        for model in (ZoneVisit, ZoneState, CameraZone, ScanStat, MissedEvent):
+            db.query(model).filter(model.camera_id == camera_id).delete(
+                synchronize_session=False)
         db.delete(camera)
         db.commit()
     except Exception:
@@ -734,9 +767,23 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Unable to delete camera")
 
     return {
+        "storage_cleanup": storage_cleanup,
+        "alerts_deleted": alerts_deleted,
+    }
+
+
+@app.delete("/api/cameras/{camera_id}")
+def delete_camera(camera_id: int, db: Session = Depends(get_db)):
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    result = remove_camera(camera, db)
+
+    return {
         "message": "Camera deleted successfully",
         "camera_id": camera_id,
-        "storage_cleanup": storage_cleanup,
+        **result,
     }
 # ---------------- CAMERA GROUP APIs ----------------
 
@@ -837,8 +884,12 @@ def update_group(
 @app.delete("/api/groups/{group_code}")
 def delete_group(
     group_code: str,
+    delete_cameras: bool = False,
     db: Session = Depends(get_db)
 ):
+    """Delete a group. By default its cameras stay (they become ungrouped).
+    With delete_cameras=true every camera in the group is deleted as well,
+    together with its recordings, clips and alerts."""
     group = db.query(CameraGroup).filter(
         CameraGroup.group_code == group_code
     ).first()
@@ -846,10 +897,56 @@ def delete_group(
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
-    db.delete(group)
-    db.commit()
+    deleted_cameras = 0
+    alerts_deleted = 0
+    storage_failed = []
 
-    return {"message": "Group deleted successfully"}
+    if delete_cameras:
+        camera_ids = [member.camera_id for member in group.members]
+        failed = []
+
+        for camera_id in camera_ids:
+            camera = db.query(Camera).filter(Camera.id == camera_id).first()
+            if camera is None:
+                continue
+
+            camera_name = camera.name
+
+            try:
+                result = remove_camera(camera, db)
+            except HTTPException:
+                failed.append(camera_name)
+                continue
+
+            deleted_cameras += 1
+            alerts_deleted += result["alerts_deleted"]
+            if result["storage_cleanup"] != "ok":
+                storage_failed.append(camera_name)
+
+        if failed:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Could not delete: " + ", ".join(failed)
+                    + ". The group was kept."
+                ),
+            )
+
+        # The cameras' membership rows went with them; load the group again
+        group = db.query(CameraGroup).filter(
+            CameraGroup.group_code == group_code
+        ).first()
+
+    if group is not None:
+        db.delete(group)
+        db.commit()
+
+    return {
+        "message": "Group deleted successfully",
+        "deleted_cameras": deleted_cameras,
+        "alerts_deleted": alerts_deleted,
+        "storage_cleanup_failed": storage_failed,
+    }
 
 
 # ---------------- SAFETY PROMPT APIs ----------------
@@ -906,7 +1003,8 @@ def format_prompt(prompt):
         "text": prompt.text,
         "type": prompt.prompt_type,
         "target": target,
-        "enabled": prompt.enabled
+        "enabled": prompt.enabled,
+        "compiled": compiled_view(prompt),
     }
 
 
@@ -958,8 +1056,11 @@ def update_prompt(
         data.type, data.target, db
     )
 
+    new_text = data.text.strip()
+    if new_text != (prompt.text or "").strip():
+        prompt.compiled = None          # the compiled form no longer describes the rule
     prompt.title = data.title.strip()
-    prompt.text = data.text.strip()
+    prompt.text = new_text
     prompt.prompt_type = data.type
     prompt.group_id = group_id
     prompt.camera_id = camera_id

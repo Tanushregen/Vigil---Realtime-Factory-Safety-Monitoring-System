@@ -374,7 +374,28 @@ def _ensure_uploader() -> None:
 
 # ---------------- public API ----------------
 
+def _enabled() -> bool:
+    from app.detector import config
+
+    return config.RECORDING_ENABLED
+
+
+def apply_enabled(enabled: bool) -> None:
+    """The Settings switch for continuous recording: stop the recorders, or start them again.
+    The uploader keeps running so footage already recorded still gets uploaded."""
+    if enabled:
+        start_recordings()
+        return
+    with _lock:
+        ids = list(_workers)
+    logger.info("[recorder] continuous recording switched off")
+    for camera_id in ids:
+        stop_recording(camera_id)
+
+
 def start_recording(camera_id: int) -> None:
+    if not _enabled():
+        return
     with _lock:
         existing = _workers.get(camera_id)
         if existing and existing[0].is_alive():

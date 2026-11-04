@@ -40,6 +40,8 @@ class Confirmer:
         self._history: dict[tuple[int, object], deque] = {}
         self._cooldown: dict[tuple[int, object], float] = {}
         self._fired_boxes: list[tuple[int, dict, float]] = []   # (rule, box, until)
+        self._since: dict[tuple[int, object], float] = {}       # start of the current positive run
+        self._waiting: set[tuple[int, object]] = set()           # confirmed-by-count, still timing
 
     def update(self, rules: list[Rule], person_ids: list[int],
                hits: list[Hit]) -> list[Confirmed]:
@@ -56,7 +58,7 @@ class Confirmer:
 
         # forget state for rules that were removed and for people no longer tracked
         live = {(r.id, k) for r in rules for k in keys}
-        for store in (self._history, self._cooldown):
+        for store in (self._history, self._cooldown, self._since):
             for stale in [k for k in store if k not in live and
                           (store is self._history or self._cooldown[k] < now)]:
                 del store[stale]
@@ -64,13 +66,21 @@ class Confirmer:
                              if f[2] > now and f[0] in rule_by_id]
 
         confirmed: list[Confirmed] = []
+        self._waiting = set()
         for rule in rules:
             for k in keys:
                 key = (rule.id, k)
                 hist = self._history.setdefault(key, deque(maxlen=config.CONFIRM_WINDOW))
                 hist.append(key in positive)
-                if sum(hist) < config.CONFIRM_HITS or key not in positive:
+                if key not in positive:
+                    self._since.pop(key, None)       # the run is broken: start counting again
                     continue
+                since = self._since.setdefault(key, now)
+                if sum(hist) < config.CONFIRM_HITS:
+                    continue
+                if now - since < rule.duration_sec:
+                    self._waiting.add(key)
+                    continue                          # not sustained for long enough yet
                 if self._cooldown.get(key, 0) > now:
                     continue
                 hit = positive[key]
@@ -83,10 +93,12 @@ class Confirmer:
                 if hit.box:
                     self._fired_boxes.append((rule.id, hit.box, until))
                 hist.clear()
+                self._since.pop(key, None)
                 confirmed.append(Confirmed(rule, hit, None if k == SCENE else int(k)))
         return confirmed
 
     def pending(self) -> bool:
         """True while some rule has a positive result that is not confirmed yet,
         so the worker re-checks soon instead of waiting a full interval."""
-        return any(0 < sum(h) < config.CONFIRM_HITS for h in self._history.values())
+        return (any(0 < sum(h) < config.CONFIRM_HITS for h in self._history.values())
+                or bool(self._waiting))      # a violation being timed is re-checked soon

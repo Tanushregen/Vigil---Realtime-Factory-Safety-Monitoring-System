@@ -8,7 +8,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app import retention, settings_store, system_status
+from app import clips, recorder, retention, settings_store, system_status
 from app.auth.dependencies import require_admin
 
 router = APIRouter(prefix="/api", tags=["settings"])
@@ -76,6 +76,17 @@ def preview_storage(clip_days: int = Query(0, ge=0, le=3650), recording_days: in
 def cleanup_storage():
     """Run one cleanup pass now, with the SAVED retention settings."""
     return retention.run_once()
+
+
+# ---------------------------------------------------------------- cameras
+@router.get("/settings/cameras/defaults")
+def camera_defaults():
+    """What a camera uses when its own setting is left empty."""
+    return {
+        "clip_pre_seconds": clips.DEFAULT_PRE,
+        "clip_post_seconds": clips.DEFAULT_POST,
+        "segment_seconds": recorder.SEGMENT_SECONDS,
+    }
 
 
 # ---------------------------------------------------------------- system status

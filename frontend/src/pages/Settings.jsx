@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Activity, HardDrive, MessageCircle, Server, Settings as SettingsIcon, SlidersHorizontal, Video } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
+import CamerasSettings from '../components/settings/CamerasSettings'
+import RecordersSettings from '../components/settings/RecordersSettings'
 import DetectionSettings from '../components/settings/DetectionSettings'
 import StorageSettings from '../components/settings/StorageSettings'
 import SystemStatus from '../components/settings/SystemStatus'
@@ -181,16 +183,7 @@ function Settings({ onOpenAlerts }) {
         </button>
       </div>
 
-      {activeTab === 'cameras' && (
-        <section className="ov-panel">
-          <div className="ov-panel-head">
-            <div>
-              <h2>Camera Settings</h2>
-              <p>Camera configuration settings.</p>
-            </div>
-          </div>
-        </section>
-      )}
+      {activeTab === 'cameras' && <CamerasSettings />}
 
       {activeTab === 'notifications' && <Notifications />}
 
@@ -200,16 +193,7 @@ function Settings({ onOpenAlerts }) {
 
       {activeTab === 'system' && <SystemStatus />}
 
-      {activeTab === 'recorders' && (
-        <section className="ov-panel">
-          <div className="ov-panel-head">
-            <div>
-              <h2>Recorder Settings</h2>
-              <p>DVR/NVR configuration settings.</p>
-            </div>
-          </div>
-        </section>
-      )}
+      {activeTab === 'recorders' && <RecordersSettings isAdmin={isAdmin} />}
     </div>
   )
 }

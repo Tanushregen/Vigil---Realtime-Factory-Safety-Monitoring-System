@@ -3,7 +3,10 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -63,6 +66,8 @@ def _serialize(
         # Stored as the server's local time without an offset; send it with the
         # offset so every browser shows the same moment.
         "occurred_at": row.occurred_at.astimezone().isoformat(),
+        "review": row.review,
+        "latency_ms": row.latency_ms,
     }
 
 
@@ -150,3 +155,18 @@ def get_violation_clip(violation_id: int, db: Session = Depends(get_db)):
         )
 
     return {"url": url, "expires_in": CLIP_URL_SECONDS}
+
+
+class ReviewBody(BaseModel):
+    verdict: Optional[Literal["true", "false"]] = None   # null clears the verdict
+
+
+@router.post("/{violation_id}/review")
+def review_violation(violation_id: int, body: ReviewBody, db: Session = Depends(get_db)):
+    row = db.query(Violation).filter(Violation.id == violation_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Violation not found")
+    row.review = body.verdict
+    row.reviewed_at = datetime.now() if body.verdict else None
+    db.commit()
+    return {"id": row.id, "review": row.review}

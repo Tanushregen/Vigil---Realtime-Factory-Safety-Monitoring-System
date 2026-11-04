@@ -17,7 +17,7 @@ from dataclasses import replace
 import cv2
 import numpy as np
 
-from app import frames
+from app import frames, metrics
 from app.detector import config, judge, meta_client, trail
 from app.detector.confirm import Confirmer
 from app.detector.rules import Rule, resolve_rules
@@ -204,6 +204,7 @@ class CameraWorker(threading.Thread):
                 go = due and self._scene_changed(frame)
                 if due and not go:
                     self._next_scan_at = now + config.IDLE_INTERVAL
+                    metrics.record_scan(self.camera_id, True, skipped=True)
             if not go:
                 return
 
@@ -228,12 +229,15 @@ class CameraWorker(threading.Thread):
         try:
             result = judge.judge(frame, people, rules, zones)
         except (meta_client.MetaError, ValueError, KeyError) as e:
+            metrics.record_scan(self.camera_id, False, time.time() - started)
             self._scan_failed(e)
             return
         except Exception as e:
             logger.exception("[detector] cam%s: scan crashed", self.camera_id)
+            metrics.record_scan(self.camera_id, False, time.time() - started)
             self._scan_failed(e)
             return
+        metrics.record_scan(self.camera_id, True, time.time() - started, result.usage)
 
         try:
             confirmed = self._confirmer.update(rules, [p.track_id for p in people],

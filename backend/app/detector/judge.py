@@ -36,6 +36,7 @@ class Scan:
     summary: str
     observations: Observations | None = None    # scene log: PPE per person, gate states
     targets: list[int] = field(default_factory=list)   # track ids of the people judged
+    usage: dict = field(default_factory=dict)          # tokens this scan used
 
 
 def _rule_block(rules: list[Rule]) -> str:
@@ -208,7 +209,9 @@ FILLED_CONFIDENCE = 70    # for people named in "checked" without a full entry
 def judge(frame: np.ndarray, people: list[Person], rules: list[Rule], zones=None) -> Scan:
     """Raises meta_client.MetaError / ValueError when the answer cannot be used."""
     parts, sent = _build(frame, people, rules, zones)
+    meta_client.reset_usage()
     text = meta_client.chat(SYSTEM, parts)
+    usage = meta_client.last_usage()
     data = _parse_json(text)
 
     valid_ids = {r.id for r in rules}
@@ -253,4 +256,4 @@ def judge(frame: np.ndarray, people: list[Person], rules: list[Rule], zones=None
     gate_ids = {z.id for z in (zones or []) if z.kind in ("gate", "exit")}
     observations = (_observations(data, set(by_track), gate_ids)
                     if config.SCENE_LOG else None)
-    return Scan(hits, str(data.get("sceneSummary", ""))[:300], observations, sent)
+    return Scan(hits, str(data.get("sceneSummary", ""))[:300], observations, sent, usage)

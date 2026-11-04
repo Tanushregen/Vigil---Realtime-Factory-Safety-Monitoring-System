@@ -197,12 +197,22 @@ def _add_missing_columns():
                 conn.exec_driver_sql(f"ALTER TABLE cameras ADD COLUMN {name} {col_type}")
 
 
+def _add_violation_columns():
+    wanted = {"review": "VARCHAR", "reviewed_at": "DATETIME", "latency_ms": "INTEGER"}
+    with engine.begin() as conn:
+        existing = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(violations)")}
+        for name, col_type in wanted.items():
+            if existing and name not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE violations ADD COLUMN {name} {col_type}")
+
+
 def init_db():
     # Register the authentication tables with Base
     import app.auth.models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()
+    _add_violation_columns()
 
 
 # Database dependency for FastAPI
@@ -224,6 +234,39 @@ class Violation(Base):
     occurred_at = Column(DateTime, nullable=False, index=True)
     clip_key = Column(String, nullable=False)
     metadata_key = Column(String, nullable=False)
+    # Metrics: a person's verdict on the alert ("true" = real, "false" = false alert)
+    review = Column(String, nullable=True, index=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    # milliseconds from the frame the model judged to the alert being raised
+    latency_ms = Column(Integer, nullable=True)
+
+
+# Metrics: hourly counters of the model scans of one camera (UTC hour start)
+class ScanStat(Base):
+    __tablename__ = "scan_stats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    hour = Column(DateTime, nullable=False, index=True)
+    scans = Column(Integer, nullable=False, default=0)
+    failures = Column(Integer, nullable=False, default=0)
+    skipped = Column(Integer, nullable=False, default=0)       # idle scans motion gating avoided
+    latency_ms_sum = Column(Integer, nullable=False, default=0)
+    latency_ms_max = Column(Integer, nullable=False, default=0)
+    prompt_tokens = Column(Integer, nullable=False, default=0)
+    completion_tokens = Column(Integer, nullable=False, default=0)
+
+
+# Metrics: a violation a person saw that VIGIL did not raise (for recall)
+class MissedEvent(Base):
+    __tablename__ = "missed_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    violation_type = Column(String, nullable=True)
+    note = Column(String, nullable=True)
+    occurred_at = Column(DateTime, nullable=False, index=True)   # server local time
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # Camera health history table

@@ -212,6 +212,27 @@ function Alerts() {
     }
   }
 
+  async function sendReview(item, verdict) {
+    // clicking the active verdict again clears it
+    const next = item.review === verdict ? null : verdict
+    try {
+      const response = await fetch(`/api/violations/${item.id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verdict: next }),
+      })
+      if (!response.ok) throw new Error('Could not save your answer')
+      setItems(previous =>
+        previous.map(row => (row.id === item.id ? { ...row, review: next } : row))
+      )
+      setSelected(previous =>
+        previous && previous.id === item.id ? { ...previous, review: next } : previous
+      )
+    } catch (err) {
+      setClipError(err.message)
+    }
+  }
+
   function renderCard(item, key) {
     return (
       <button
@@ -245,6 +266,12 @@ function Alerts() {
             <Folder size={15} />
             <span>{item.clip_dir}</span>
           </p>
+        )}
+
+        {item.review && (
+          <span className={`alert-review ${item.review}`}>
+            {item.review === 'true' ? 'Confirmed' : 'False alert'}
+          </span>
         )}
 
         <span className="alert-time">
@@ -461,6 +488,23 @@ function Alerts() {
                   Download clip
                 </a>
               )}
+              <span className="alert-verdict">
+                Was this a real violation?
+                <button
+                  type="button"
+                  className={selected.review === 'true' ? 'on good' : ''}
+                  onClick={() => sendReview(selected, 'true')}
+                >
+                  Yes, real
+                </button>
+                <button
+                  type="button"
+                  className={selected.review === 'false' ? 'on bad' : ''}
+                  onClick={() => sendReview(selected, 'false')}
+                >
+                  No, false alert
+                </button>
+              </span>
             </div>
           </div>
         </div>

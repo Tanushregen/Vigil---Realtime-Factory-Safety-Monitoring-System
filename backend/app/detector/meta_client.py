@@ -23,6 +23,31 @@ class MetaError(RuntimeError):
     pass
 
 
+_usage = threading.local()
+
+
+def reset_usage() -> None:
+    _usage.value = {"prompt_tokens": 0, "completion_tokens": 0}
+
+
+def last_usage() -> dict:
+    """Tokens used by the calls this thread made since reset_usage()."""
+    return dict(getattr(_usage, "value", None) or {"prompt_tokens": 0, "completion_tokens": 0})
+
+
+def _add_usage(data: dict) -> None:
+    try:
+        usage = data.get("usage") or {}
+        current = getattr(_usage, "value", None)
+        if current is None:
+            reset_usage()
+            current = _usage.value
+        current["prompt_tokens"] += int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+        current["completion_tokens"] += int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    except (TypeError, ValueError, AttributeError):
+        pass
+
+
 def is_configured() -> bool:
     return bool(config.META_API_KEY)
 
@@ -55,6 +80,7 @@ def chat(system: str, content: list[dict], json_mode: bool = True) -> str:
         else:
             if resp.status_code == 200:
                 data = resp.json()
+                _add_usage(data)
                 text = _extract_text(data)
                 if text:
                     return text

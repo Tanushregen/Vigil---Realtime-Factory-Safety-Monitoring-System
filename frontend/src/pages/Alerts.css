@@ -386,3 +386,51 @@
   font-size: 13px;
   font-weight: 700;
 }
+
+.alert-review {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.alert-review.true {
+  color: #067647;
+  background: #dcfae6;
+}
+
+.alert-review.false {
+  color: #b42318;
+  background: #fee4e2;
+}
+
+.alert-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.alert-verdict button {
+  padding: 6px 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.alert-verdict button.on.good {
+  color: #fff;
+  background: #067647;
+  border-color: #067647;
+}
+
+.alert-verdict button.on.bad {
+  color: #fff;
+  background: #b42318;
+  border-color: #b42318;
+}

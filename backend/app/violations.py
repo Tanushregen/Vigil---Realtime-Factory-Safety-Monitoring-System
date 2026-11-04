@@ -46,7 +46,10 @@ def record_violation(
     {"track_id", "label", "box", "at"}; every tracked person is boxed as well.
     Blocks for about post_seconds + 10 s.
     """
-    occurred_ts = occurred_ts if occurred_ts is not None else time.time()
+    raised_at = time.time()
+    latency_ms = (int(max(0.0, raised_at - occurred_ts) * 1000)
+                  if occurred_ts is not None else None)
+    occurred_ts = occurred_ts if occurred_ts is not None else raised_at
     occurred = datetime.fromtimestamp(occurred_ts).astimezone()
     violation_id = violation_id or uuid.uuid4().hex[:8]
 
@@ -131,6 +134,7 @@ def record_violation(
             "prompt_id": prompt_id,
             "confidence": confidence,
             "description": description,
+            "latency_ms": latency_ms,
             "occurred_at": occurred.isoformat(),
             "occurred_at_utc": occurred.astimezone(timezone.utc).isoformat(),
             "clip": {
@@ -184,6 +188,7 @@ def record_violation(
                 occurred_at=occurred.replace(tzinfo=None),
                 clip_key=clip_key,
                 metadata_key=metadata_key,
+                latency_ms=latency_ms,
             )
             db.add(row)
             db.commit()

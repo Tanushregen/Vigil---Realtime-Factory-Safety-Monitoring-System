@@ -72,6 +72,10 @@ CONFIRM_WINDOW = _int("DETECTOR_CONFIRM_WINDOW", 3)     # ... out of the last N
 MIN_CONFIDENCE = _int("DETECTOR_MIN_CONFIDENCE", 60)    # 0-100, VLM confidence floor
 COOLDOWN_SECONDS = _float("DETECTOR_COOLDOWN", 60.0)
 
+# --- Cost of the cloud model (USD per million tokens; 0 = not set, no cost shown)
+META_PRICE_IN = _float("META_PRICE_IN_PER_M", 0.0)
+META_PRICE_OUT = _float("META_PRICE_OUT_PER_M", 0.0)
+
 # --- Local fall alert (no cloud call). Off by default: only user rules fire. --
 FALL_DETECTION = _str("DETECTOR_FALL_DETECTION", "0") in ("1", "true", "yes")
 FALL_SECONDS = _float("DETECTOR_FALL_SECONDS", 1.5)

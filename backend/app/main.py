@@ -9,7 +9,7 @@ from app.health import check_camera_health
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory, Violation, CameraZone, ZoneState, ZoneVisit
+from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory, Violation, CameraZone, ZoneState, ZoneVisit, ScanStat, MissedEvent
 from app.crypto import encrypt_password, decrypt_password
 from app.rtsp import build_urls, validate_rtsp_stream
 from app.schemas import CameraGroupUpdate, DVRCreate,CameraUpdate, CameraManualCreate, CameraRTSPUpdate, SafetyPromptCreate, SafetyPromptEnabledUpdate, CameraGroupCreate, CameraGroupUpdate, SafetyPromptCreate, SafetyPromptUpdate, SafetyPromptEnabledUpdate
@@ -33,6 +33,7 @@ logging.basicConfig(
 from app.auth import config as auth_config
 from app.auth.dependencies import enforce_authentication
 from app.auth.router import router as auth_router
+from app.metrics_api import router as metrics_router
 from app.violations_api import router as violations_router
 from app.scene_api import router as scene_router
 from app.detector.scene import close_stale_visits
@@ -47,6 +48,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(violations_router)
 app.include_router(scene_router)
+app.include_router(metrics_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=auth_config.ALLOWED_ORIGINS,
@@ -736,7 +738,7 @@ def remove_camera(camera: Camera, db: Session) -> dict:
             .filter(Violation.camera_id == camera_id)
             .delete(synchronize_session=False)
         )
-        for model in (ZoneVisit, ZoneState, CameraZone):
+        for model in (ZoneVisit, ZoneState, CameraZone, ScanStat, MissedEvent):
             db.query(model).filter(model.camera_id == camera_id).delete(
                 synchronize_session=False)
         db.delete(camera)

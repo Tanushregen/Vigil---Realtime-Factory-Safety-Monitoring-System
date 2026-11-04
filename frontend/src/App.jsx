@@ -1,5 +1,19 @@
 
 import { useEffect, useState } from 'react'
+import {
+  Bell,
+  ChevronRight,
+  House,
+  LogOut,
+  Menu,
+  Settings as SettingsIcon,
+  ServerCog,
+  ShieldCheck,
+  UserRound,
+  Users as UsersIcon,
+  Video,
+  X,
+} from 'lucide-react'
 import AddDvr from './pages/AddDvr'
 import Alerts from './pages/Alerts'
 import CameraDetail from './pages/CameraDetail'
@@ -8,6 +22,7 @@ import Settings from './pages/Settings'
 import Overview from './pages/Overview'
 import Users from './pages/Users'
 import { useAuth } from './auth/authContext'
+import logo from './assets/vigil-logo-light.png'
 import './App.css'
 
 const zones = [
@@ -19,6 +34,16 @@ const zones = [
   'Fire exit',
   'Office',
   'Other',
+]
+
+const navItems = [
+  { page: 'overview', label: 'Overview', icon: House },
+  { page: 'cameras', label: 'Cameras', icon: Video },
+  { page: 'add-dvr', label: 'Add DVR / NVR', icon: ServerCog },
+  { page: 'safety-rules', label: 'Safety Rules', icon: ShieldCheck },
+  { page: 'alerts', label: 'Alerts', icon: Bell },
+  { page: 'settings', label: 'Settings', icon: SettingsIcon },
+  { page: 'users', label: 'Users', icon: UsersIcon, adminOnly: true },
 ]
 
 function cameraThumbnail(cameraId, thumbnailTime) {
@@ -110,6 +135,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState('cameras')
   const [selectedCamera, setSelectedCamera] = useState(null)
   const [selectedGroupId, setSelectedGroupId] = useState(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   // Fetch every camera and every group from the backend
   async function fetchCameras() {
@@ -222,95 +248,89 @@ function App() {
     setCurrentPage(page)
     setSelectedCamera(null)
     setSelectedGroupId(null)
+    setMenuOpen(false)
   }
 
   return (
     <div className="app">
+      {/* Mobile top bar with the menu button */}
+      <div className="mobile-bar">
+        <button
+          className="mobile-menu-button"
+          aria-label="Open menu"
+          onClick={() => setMenuOpen(true)}
+        >
+          <Menu size={22} />
+        </button>
+        <img src={logo} alt="VIGIL" className="mobile-bar-logo" />
+      </div>
+
+      {menuOpen && (
+        <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />
+      )}
+
       {/* Fixed sidebar */}
-      <aside className="sidebar">
-        <h2 className="logo">VIGIL</h2>
-        <p className="sidebar-label">FACTORY MONITORING</p>
-
-        <div
-          className={`nav-item ${
-            currentPage === 'overview' ? 'active' : ''
-          }`}
-          onClick={() => navigateTo('overview')}
+      <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
+        <button
+          className="sidebar-close"
+          aria-label="Close menu"
+          onClick={() => setMenuOpen(false)}
         >
-          Overview
+          <X size={20} />
+        </button>
+
+        <div className="sidebar-brand">
+          <img src={logo} alt="VIGIL" className="sidebar-logo" />
+          <p className="sidebar-label">FACTORY MONITORING</p>
         </div>
 
-        <div
-          className={`nav-item ${
-            currentPage === 'cameras' ? 'active' : ''
-          }`}
-          onClick={() => navigateTo('cameras')}
-        >
-          Cameras
-        </div>
-
-        <div
-          className={`nav-item ${
-            currentPage === 'add-dvr' ? 'active' : ''
-          }`}
-          onClick={() => navigateTo('add-dvr')}
-        >
-          Add DVR / NVR
-        </div>
-
-        <div
-          className={`nav-item ${
-            currentPage === 'safety-rules' ? 'active' : ''
-          }`}
-          onClick={() => navigateTo('safety-rules')}
-        >
-          Safety Rules
-        </div>
-
-        <div
-          className={`nav-item ${
-            currentPage === 'alerts' ? 'active' : ''
-          }`}
-          onClick={() => navigateTo('alerts')}
-        >
-          Alerts
-        </div>
-
-        <div
-          className={`nav-item ${
-            currentPage === 'settings' ? 'active' : ''
-          }`}
-          onClick={() => navigateTo('settings')}
-        >
-          Settings
-        </div>
-
-        {isAdmin && (
-          <div
-            className={`nav-item ${
-              currentPage === 'users' ? 'active' : ''
-            }`}
-            onClick={() => navigateTo('users')}
-          >
-            Users
-          </div>
-        )}
+        <nav className="sidebar-nav">
+          {navItems
+            .filter(item => !item.adminOnly || isAdmin)
+            .map(({ page, label, icon: Icon }) => (
+              <button
+                key={page}
+                className={`nav-item ${currentPage === page ? 'active' : ''}`}
+                aria-current={currentPage === page ? 'page' : undefined}
+                onClick={() => navigateTo(page)}
+              >
+                <Icon size={20} strokeWidth={1.9} />
+                <span>{label}</span>
+              </button>
+            ))}
+        </nav>
 
         <div className="sidebar-user">
-          <p className="sidebar-user-name">{user.name}</p>
-          <span className="sidebar-user-role">{user.role}</span>
+          <div className="sidebar-avatar">
+            <UserRound size={22} strokeWidth={1.8} />
+          </div>
 
-          <button className="logout-button" onClick={logout}>
-            Log out
+          <div className="sidebar-user-text">
+            <p className="sidebar-user-name">{user.name}</p>
+            <span className="sidebar-user-role">{user.role}</span>
+          </div>
+
+          <button
+            className="logout-button"
+            onClick={logout}
+            title="Log out"
+            aria-label="Log out"
+          >
+            <LogOut size={18} />
+            <ChevronRight size={16} />
           </button>
         </div>
       </aside>
 
       {/* Independently scrollable main content */}
-      <main className="main-content">
+      <main
+        className={`main-content ${
+          currentPage === 'overview' ? 'main-overview' : ''
+        }`}
+      >
         <div className="main-content-inner">
         {currentPage === 'overview' ? (
-          <Overview />
+          <Overview onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'add-dvr' ? (
           <AddDvr />
         ) : currentPage === 'safety-rules' ? (

@@ -69,7 +69,7 @@ start_backend() {
 }
 
 start_frontend() {
-  if [[ ! -d frontend/node_modules ]]; then
+  if [[ ! -d frontend/node_modules || frontend/package.json -nt frontend/node_modules/.package-lock.json ]]; then
     log "installing frontend dependencies"
     (cd frontend && npm install)
   fi

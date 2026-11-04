@@ -12,10 +12,13 @@ body {
   color: #000000;
 }
 
+/* --ui-scale is set by autoScale.js. zoom shrinks the whole interface, and the
+   size is divided by it so the app still fills the window exactly. */
 .app {
   display: flex;
-  width: 100%;
-  height: 100vh;
+  width: calc(100vw / var(--ui-scale, 1));
+  height: calc(100vh / var(--ui-scale, 1));
+  zoom: var(--ui-scale, 1);
   overflow: hidden;
 }
 
@@ -49,7 +52,7 @@ p {
 .sidebar {
   width: 300px;
   min-width: 300px;
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   padding: 30px 22px 22px;
@@ -198,7 +201,7 @@ p {
 .main-content {
   flex: 1;
   min-width: 0;
-  height: 100vh;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
 }

@@ -14,6 +14,8 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+
 from app import clips, recorder, storage
 from app.db import SessionLocal, Camera, Violation
 
@@ -172,6 +174,50 @@ def record_violation(
             "[violation] %s: FAILED (clip kept locally at %s)",
             violation_id, clip_path)
         raise
+
+
+def purge_orphan_violations() -> int:
+    """Delete alerts whose camera no longer exists (left behind by cameras that
+    were deleted before alerts were removed together with their camera).
+    The database rows go at once; the stored clip and metadata files are
+    removed in the background, best effort. Returns the number of alerts removed."""
+    db = SessionLocal()
+    try:
+        orphans = (
+            db.query(Violation.id, Violation.clip_key, Violation.metadata_key)
+            .filter(~Violation.camera_id.in_(select(Camera.id)))
+            .all()
+        )
+        if not orphans:
+            return 0
+
+        ids = [row.id for row in orphans]
+        db.query(Violation).filter(Violation.id.in_(ids)).delete(
+            synchronize_session=False
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("[violation] could not remove alerts of deleted cameras")
+        return 0
+    finally:
+        db.close()
+
+    keys = [key for row in orphans for key in (row.clip_key, row.metadata_key) if key]
+
+    def _remove_files():
+        for key in keys:
+            try:
+                storage.delete_object_everywhere(key)
+            except Exception:
+                logger.warning("[violation] could not remove %s", key, exc_info=True)
+
+    threading.Thread(
+        target=_remove_files, daemon=True, name="purge-orphan-alerts"
+    ).start()
+
+    logger.info("[violation] removed %d alert(s) of deleted cameras", len(ids))
+    return len(ids)
 
 
 def record_violation_async(camera_id: int, violation_type: str,

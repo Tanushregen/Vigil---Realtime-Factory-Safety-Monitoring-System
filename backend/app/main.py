@@ -17,7 +17,7 @@ from app.go2rtc import register_stream, delete_stream
 from app.frames import capture_threads, stop_events
 from app.recorder import start_recordings, stop_recording, stop_all_recordings, restart_recording
 from app.clips import start_clip_buffers, stop_clip_buffer, stop_all_clip_buffers
-from app.violations import record_violation_async
+from app.violations import record_violation_async, purge_orphan_violations
 from app.detector import start_detectors, stop_detector, stop_all_detectors, get_status as get_detector_status
     
 from app import storage
@@ -175,6 +175,7 @@ async def startup():
     global health_task,recovery_task
 
     init_db()
+    purge_orphan_violations()
     register_existing_streams()
     start_frame_capture()
     start_recordings()

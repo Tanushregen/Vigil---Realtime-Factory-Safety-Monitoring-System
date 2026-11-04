@@ -6,3 +6,4 @@ python-dotenv
 sqlalchemy
 uvicorn
 boto3
+ultralytics

@@ -9,12 +9,22 @@ from app.db import SessionLocal, Camera
 logger = logging.getLogger(__name__)
 
 # Frame sampling rate: configurable between 1 and 5 FPS
-FRAME_FPS = 2
+FRAME_FPS = 5
 
 frame_lock = threading.Lock()
 
 # Store the latest JPEG frame for each camera
 latest_frames = {}
+
+# Latest full-resolution frame (numpy BGR array, capture time) per camera,
+# read by the violation detector.
+latest_raw = {}
+
+
+def get_latest_raw(camera_id: int):
+    """Return (frame, capture_time) or None. The frame must not be modified."""
+    with frame_lock:
+        return latest_raw.get(camera_id)
 
 # Track active camera capture threads
 capture_threads = {}
@@ -41,16 +51,26 @@ def capture_camera_frames(camera_id: int, stop_event: threading.Event):
             return
 
         frame_interval = 1 / max(1, min(FRAME_FPS, 5))
+        next_sample = 0.0
 
         while not stop_event.is_set():
-            success, frame = cap.read()
-
-            if not success:
+            # Always pull frames off the stream so its buffer never fills up
+            # with old footage (sleeping between reads made frames stale).
+            if not cap.grab():
                 logger.warning(
                     "Frame capture failed for camera %s",
                     camera_id
                 )
                 time.sleep(1)
+                continue
+
+            now = time.monotonic()
+            if now < next_sample:
+                continue
+            next_sample = now + frame_interval
+
+            success, frame = cap.retrieve()
+            if not success:
                 continue
 
             success, jpeg = cv2.imencode(
@@ -59,11 +79,10 @@ def capture_camera_frames(camera_id: int, stop_event: threading.Event):
                 [cv2.IMWRITE_JPEG_QUALITY, 80]
             )
 
-            if success:
-                with frame_lock:
+            with frame_lock:
+                if success:
                     latest_frames[camera_id] = jpeg.tobytes()
-
-            time.sleep(frame_interval)
+                latest_raw[camera_id] = (frame, time.time())
 
     except Exception:
         logger.error("Frame capture failed for camera %s", camera_id)
@@ -74,6 +93,7 @@ def capture_camera_frames(camera_id: int, stop_event: threading.Event):
 
         with frame_lock:
             latest_frames.pop(camera_id, None)
+            latest_raw.pop(camera_id, None)
 
             # Remove references only if this is still the active thread
             if capture_threads.get(camera_id) is threading.current_thread():
@@ -130,3 +150,4 @@ def stop_frame_capture(camera_id: int):
             stop_event.set()
 
         latest_frames.pop(camera_id, None)
+        latest_raw.pop(camera_id, None)

@@ -18,6 +18,7 @@ from app.frames import capture_threads, stop_events
 from app.recorder import start_recordings, stop_recording, stop_all_recordings, restart_recording
 from app.clips import start_clip_buffers, stop_clip_buffer, stop_all_clip_buffers
 from app.violations import record_violation_async
+from app.detector import start_detectors, stop_detector, stop_all_detectors, get_status as get_detector_status
     
 from app import storage
 from app.recorder import forget_camera
@@ -156,6 +157,7 @@ async def monitor_go2rtc():
 
             start_frame_capture()
             start_recordings()
+            start_detectors()
 
         except Exception:
             logger.exception("go2rtc recovery check failed")
@@ -170,6 +172,7 @@ async def startup():
     register_existing_streams()
     start_frame_capture()
     start_recordings()
+    start_detectors()
     health_task = asyncio.create_task(check_camera_health())
     recovery_task = asyncio.create_task(monitor_go2rtc())
     
@@ -183,6 +186,8 @@ async def shutdown():
                 await task
             except asyncio.CancelledError:
                 pass
+
+    stop_all_detectors()
 
     # Signal all frame-capture threads to stop
     with frame_lock:
@@ -544,8 +549,10 @@ def update_camera(
     ):
         if camera.analysis_enabled:
             start_frame_capture()
+            start_detectors()
         else:
-            stop_frame_capture(camera_id) 
+            stop_detector(camera_id)
+            stop_frame_capture(camera_id)
     return {
         "message": "Camera updated successfully",
         "camera_id": camera.id,
@@ -657,6 +664,7 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)):
     folder = storage.camera_folder(camera_id)          # e.g. "tv"
 
     # 2. Stop frame capture and recorder, discard pending local chunks
+    stop_detector(camera_id)
     stop_frame_capture(camera_id)
     forget_camera(camera_id)        # replaces stop_recording(camera_id)
     clips.stop_clip_buffer(camera_id)  
@@ -962,6 +970,12 @@ def delete_prompt(
     db.commit()
 
     return {"message": "Prompt deleted successfully"}   
+
+@app.get("/api/cameras/{camera_id}/detector")
+def detector_status(camera_id: int):
+    """What this camera's violation detector is doing (scans, failures, last result)."""
+    return get_detector_status(camera_id)
+
 
 @app.post("/api/cameras/{camera_id}/test-violation")
 def test_violation(camera_id: int, violation_type: str = "test_violation"):

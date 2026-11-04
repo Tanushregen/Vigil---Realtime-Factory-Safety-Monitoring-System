@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from 'react'
 import AddDvr from './pages/AddDvr'
+import Alerts from './pages/Alerts'
 import CameraDetail from './pages/CameraDetail'
 import SafetyRules from './pages/SafetyRules'
 import Settings from './pages/Settings'
@@ -315,9 +316,7 @@ function App() {
         ) : currentPage === 'safety-rules' ? (
           <SafetyRules />
         ) : currentPage === 'alerts' ? (
-          <div className="placeholder-page">
-            <h1>Alerts</h1>
-          </div>
+          <Alerts />
         ) : currentPage === 'settings' ? (
           <Settings />
         ) : currentPage === 'users' && isAdmin ? (

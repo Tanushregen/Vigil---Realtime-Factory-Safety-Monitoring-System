@@ -33,6 +33,7 @@ logging.basicConfig(
 from app.auth import config as auth_config
 from app.auth.dependencies import enforce_authentication
 from app.auth.router import router as auth_router
+from app.violations_api import router as violations_router
 
 app = FastAPI(
     title="VIGIL API",
@@ -42,6 +43,7 @@ app = FastAPI(
     dependencies=[Depends(enforce_authentication)]
 )
 app.include_router(auth_router)
+app.include_router(violations_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=auth_config.ALLOWED_ORIGINS,

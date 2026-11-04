@@ -383,13 +383,7 @@ function App() {
 
       {/* Independently scrollable main content */}
       <main
-        className={`main-content ${
-          currentPage === 'overview' ||
-          currentPage === 'add-dvr' ||
-          (currentPage === 'cameras' && !selectedCamera)
-            ? 'main-art'
-            : ''
-        }`}
+        className="main-content main-art"
       >
         <div className="main-content-inner">
         {currentPage === 'overview' ? (
@@ -397,19 +391,20 @@ function App() {
         ) : currentPage === 'add-dvr' ? (
           <AddDvr onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'safety-rules' ? (
-          <SafetyRules />
+          <SafetyRules onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'alerts' ? (
           <Alerts />
         ) : currentPage === 'settings' ? (
-          <Settings />
+          <Settings onOpenAlerts={() => navigateTo('alerts')} />
         ) : currentPage === 'users' && isAdmin ? (
-          <Users />
+          <Users onOpenAlerts={() => navigateTo('alerts')} />
         ) : selectedCamera ? (
           <CameraDetail
             camera={selectedCamera}
             onBack={() => setSelectedCamera(null)}
             onDeleted={handleCameraDelete}
             onUpdated={handleCameraUpdate}
+            onOpenAlerts={() => navigateTo('alerts')}
           />
         ) : selectedGroup ? (
           <div className="ov-page">

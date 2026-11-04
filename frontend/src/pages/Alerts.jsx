@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Bell } from 'lucide-react'
+import PageHeader from '../components/PageHeader'
 import './Alerts.css'
 
 const PAGE_SIZE = 24
@@ -159,19 +161,14 @@ function Alerts() {
   }
 
   return (
-    <div className="alerts-page">
-      <header className="topbar">
-        <div>
-          <h1>Alerts</h1>
-          <p className="subtitle">
-            Detected safety violations and their video clips
-          </p>
-        </div>
-
-        <button className="refresh-button" onClick={() => load(items.length)}>
-          Refresh
-        </button>
-      </header>
+    <div className="ov-page alerts-page">
+      <PageHeader
+        icon={Bell}
+        title="Alerts"
+        subtitle="Detected safety violations and their video clips"
+        crumbs={['VIGIL', 'Alerts']}
+        onRefresh={() => load(items.length)}
+      />
 
       <section className="alerts-filters">
         <label>

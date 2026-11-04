@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { Users as UsersIcon } from 'lucide-react'
+import PageHeader from '../components/PageHeader'
 import { errorMessage, useAuth } from '../auth/authContext'
 import './Users.css'
 
@@ -31,7 +33,7 @@ function formatDate(value) {
   return date.toLocaleString()
 }
 
-function Users() {
+function Users({ onOpenAlerts }) {
   const { user: currentUser } = useAuth()
 
   const [users, setUsers] = useState([])
@@ -158,15 +160,14 @@ function Users() {
   const editingSelf = editingId === currentUser.id
 
   return (
-    <div className="users-page">
-      <header className="topbar">
-        <div>
-          <h1>Users</h1>
-          <p className="subtitle">
-            Create accounts and manage who can access VIGIL
-          </p>
-        </div>
-      </header>
+    <div className="ov-page users-page">
+      <PageHeader
+        icon={UsersIcon}
+        title="Users"
+        subtitle="Create accounts and manage who can access VIGIL"
+        crumbs={['VIGIL', 'Users']}
+        onOpenAlerts={onOpenAlerts}
+      />
 
       {error && <p className="error-message">{error}</p>}
       {success && <p className="users-success">{success}</p>}

@@ -1,5 +1,7 @@
 
 import { useEffect, useState } from "react";
+import { ShieldCheck } from "lucide-react";
+import PageHeader from "../components/PageHeader";
 import "./SafetyRules.css";
 
 // Same-origin through the Vite proxy so the session cookie is sent
@@ -13,7 +15,7 @@ const steps = [
   { title: "Review", icon: "eye", subtitle: "Review and save configuration" },
 ];
 
-export default function SafetyRules() {
+export default function SafetyRules({ onOpenAlerts }) {
   const [currentStep, setCurrentStep] = useState(0);
 
   const [cameras, setCameras] = useState([]);
@@ -591,8 +593,16 @@ export default function SafetyRules() {
   }
 
   return (
-    <div className="sr-page">
+    <div className="ov-page sr-page">
       {/* PAGE HEADER */}
+
+      <PageHeader
+        icon={ShieldCheck}
+        title={editingPromptId ? "Edit Safety Rule" : "Safety Rules"}
+        subtitle="Set up camera groups and AI safety monitoring prompts"
+        crumbs={["VIGIL", "Safety Rules"]}
+        onOpenAlerts={onOpenAlerts}
+      />
 
       <div className="sr-header">
         <button
@@ -605,10 +615,9 @@ export default function SafetyRules() {
           <Icon name="arrow-left" />
         </button>
 
-        <div>
-          <h1>{editingPromptId ? "Edit Safety Rule" : "Safety Rules"}</h1>
-          <p>Set up camera groups and AI safety monitoring prompts</p>
-        </div>
+        <span className="sr-step-count">
+          Step {currentStep + 1} of {steps.length} · {steps[currentStep].title}
+        </span>
       </div>
 
       {/* STEP INDICATOR */}

@@ -4,6 +4,7 @@ import './index.css'
 import AuthProvider from './auth/AuthProvider.jsx'
 import AuthGate from './auth/AuthGate.jsx'
 import './App.css'
+import './theme.css'
 import './autoScale.js'
 
 createRoot(document.getElementById('root')).render(

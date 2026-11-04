@@ -509,6 +509,15 @@ function Alerts() {
                   Download clip
                 </a>
               )}
+              {selected.whatsapp && (
+                <span className="alert-wa">
+                  WhatsApp: {selected.whatsapp}
+                  {selected.whatsapp_receipts &&
+                    Object.entries(selected.whatsapp_receipts)
+                      .map(([number, state]) => ` · ${number} ${state}`)
+                      .join('')}
+                </span>
+              )}
               <span className="alert-verdict">
                 Was this a real violation?
                 <button

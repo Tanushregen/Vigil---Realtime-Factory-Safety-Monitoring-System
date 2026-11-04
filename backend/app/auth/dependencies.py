@@ -16,6 +16,8 @@ PUBLIC_PATHS = {
     "/api/auth/logout",
     "/api/auth/forgot-password",
     "/api/auth/reset-password",
+    # Meta calls this without a session; its verify token and request signature protect it
+    "/api/whatsapp/webhook",
 }
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}

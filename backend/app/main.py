@@ -36,6 +36,7 @@ from app.auth.router import router as auth_router
 from app.metrics_api import router as metrics_router
 from app.notify_api import router as notify_router
 from app.rules_api import router as rules_router, compiled_view
+from app.whatsapp_webhook import router as whatsapp_webhook_router
 from app import notify
 from app.violations_api import router as violations_router
 from app.scene_api import router as scene_router
@@ -54,6 +55,7 @@ app.include_router(scene_router)
 app.include_router(metrics_router)
 app.include_router(notify_router)
 app.include_router(rules_router)
+app.include_router(whatsapp_webhook_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=auth_config.ALLOWED_ORIGINS,

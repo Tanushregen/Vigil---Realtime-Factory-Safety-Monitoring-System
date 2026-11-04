@@ -211,6 +211,7 @@ def _add_violation_columns():
     _add_columns("violations", {"review": "VARCHAR", "reviewed_at": "DATETIME",
                                 "latency_ms": "INTEGER"})
     _add_columns("safety_prompts", {"compiled": "TEXT"})
+    _add_columns("alert_deliveries", {"message_ids": "TEXT", "receipts": "TEXT"})
     _add_columns("scan_stats", {"checked": "INTEGER NOT NULL DEFAULT 0",
                                 "rejected": "INTEGER NOT NULL DEFAULT 0"})
 
@@ -278,6 +279,8 @@ class AlertDelivery(Base):
     attempts = Column(Integer, nullable=False, default=0)
     last_error = Column(String, nullable=True)
     sent_to = Column(Text, nullable=True)                         # JSON list of masked numbers
+    message_ids = Column(Text, nullable=True)                     # JSON {WhatsApp message id: masked number}
+    receipts = Column(Text, nullable=True)                        # JSON {masked number: sent|delivered|read|failed}
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 

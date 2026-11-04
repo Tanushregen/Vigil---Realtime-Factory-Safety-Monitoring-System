@@ -71,6 +71,7 @@ def _serialize(
         "review": row.review,
         "latency_ms": row.latency_ms,
         "whatsapp": delivery["status"] if delivery else None,
+        "whatsapp_receipts": delivery.get("receipts") if delivery else None,
     }
 
 

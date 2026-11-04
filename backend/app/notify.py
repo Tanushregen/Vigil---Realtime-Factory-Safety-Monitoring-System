@@ -207,14 +207,16 @@ def deliver_alert(violation_id: int, clip: bytes | None = None, force: bool = Fa
         except Exception:
             link = None
 
-    sent, errors = set(already), []
+    sent, errors, new_ids = set(already), [], {}
     for to in _cfg.recipients:
         label = mask(to)
         if label in already:
             continue
         try:
-            _send_one(to, event, media_id, text, link)
+            message_id = _send_one(to, event, media_id, text, link)
             sent.add(label)
+            if isinstance(message_id, str) and message_id:
+                new_ids[message_id] = label
         except WhatsAppError as e:
             errors.append(f"{label}: {e}")
             logger.warning("[whatsapp] alert %s -> %s failed: %s", violation_id, label, e)
@@ -234,6 +236,10 @@ def deliver_alert(violation_id: int, clip: bytes | None = None, force: bool = Fa
         if delivery is not None:
             delivery.status = state
             delivery.sent_to = json.dumps(sorted(sent))
+            if new_ids:
+                ids = json.loads(delivery.message_ids or "{}")
+                ids.update(new_ids)
+                delivery.message_ids = json.dumps(ids)
             notes = ([problem] if problem else []) + errors
             delivery.last_error = "; ".join(notes)[:500] or None
             delivery.updated_at = datetime.utcnow()
@@ -270,12 +276,56 @@ def deliveries(violation_ids: list[int]) -> dict[int, dict]:
     db = SessionLocal()
     try:
         rows = db.query(AlertDelivery).filter(AlertDelivery.violation_id.in_(violation_ids)).all()
-        return {r.violation_id: {"status": r.status, "error": r.last_error} for r in rows}
+        return {r.violation_id: {"status": r.status, "error": r.last_error,
+                                 "receipts": json.loads(r.receipts) if r.receipts else None}
+                for r in rows}
     except Exception:
         logger.warning("[whatsapp] could not read delivery status", exc_info=True)
         return {}                      # only a label on the alert list: never break the list
     finally:
         db.close()
+
+
+# ------------------------------------------------------------------ receipts from Meta's webhook
+_RANK = {"sent": 1, "delivered": 2, "read": 3}
+
+
+def record_receipts(statuses: list[dict]) -> int:
+    """Apply Meta's status updates to the alerts they belong to. Returns how many matched."""
+    matched = 0
+    db = SessionLocal()
+    try:
+        for item in statuses:
+            message_id, state = item.get("id"), item.get("status")
+            if not isinstance(message_id, str) or state not in ("sent", "delivered", "read", "failed"):
+                continue
+            delivery = (db.query(AlertDelivery)
+                        .filter(AlertDelivery.message_ids.like(f'%"{message_id}"%')).first())
+            if delivery is None:
+                continue                        # a report, a test message, or an unknown id
+            label = json.loads(delivery.message_ids or "{}").get(message_id)
+            if label is None:
+                continue
+            receipts = json.loads(delivery.receipts or "{}")
+            current = receipts.get(label)
+            if state == "failed":
+                receipts[label] = "failed"
+                errors = item.get("errors") or [{}]
+                why = f"{label}: {errors[0].get('title') or errors[0].get('message') or 'failed'}"
+                delivery.last_error = "; ".join(filter(None, [delivery.last_error, why]))[:500]
+            elif current != "failed" and _RANK[state] > _RANK.get(current, 0):
+                receipts[label] = state         # never move backwards (read -> delivered)
+            delivery.receipts = json.dumps(receipts)
+            delivery.updated_at = datetime.utcnow()
+            matched += 1
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("[whatsapp] could not save delivery receipts")
+        return 0
+    finally:
+        db.close()
+    return matched
 
 
 # ------------------------------------------------------------------ test message

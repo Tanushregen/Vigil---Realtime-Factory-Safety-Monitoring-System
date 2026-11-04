@@ -248,8 +248,12 @@ class CameraWorker(threading.Thread):
                 scans_ok=self.status["scans_ok"] + 1, consecutive_failures=0,
                 last_error=None, last_scan_at=now, last_summary=result.summary)
             logger.info("[detector] cam%s: scan ok in %.1fs - %d people, %d rules, "
-                        "%d hits, %d confirmed", self.camera_id, now - started,
-                        len(people), len(rules), len(result.hits), len(confirmed))
+                        "%d hits, %d confirmed; judged %s; hits %s",
+                        self.camera_id, now - started, len(people), len(rules),
+                        len(result.hits), len(confirmed),
+                        ",".join(f"#{t}" for t in result.targets) or "none",
+                        ", ".join(f"#{h.target_id}:R{h.rule_id}:{h.confidence}%"
+                                  for h in result.hits) or "none")
             if self._confirmer.pending():
                 with self._lock:
                     self._next_scan_at = min(self._next_scan_at, now + config.CONFIRM_RESCAN)

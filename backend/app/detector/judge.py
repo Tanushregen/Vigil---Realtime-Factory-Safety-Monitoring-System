@@ -6,7 +6,7 @@ The prompt follows the reference project: flag only what is clearly visible.
 """
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -35,6 +35,7 @@ class Scan:
     hits: list[Hit]
     summary: str
     observations: Observations | None = None    # scene log: PPE per person, gate states
+    targets: list[int] = field(default_factory=list)   # track ids of the people judged
 
 
 def _rule_block(rules: list[Rule]) -> str:
@@ -43,6 +44,12 @@ def _rule_block(rules: list[Rule]) -> str:
 
 def build_request(frame: np.ndarray, people: list[Person], rules: list[Rule],
                   zones=None) -> list[dict]:
+    return _build(frame, people, rules, zones)[0]
+
+
+def _build(frame: np.ndarray, people: list[Person], rules: list[Rule],
+           zones=None) -> tuple[list[dict], list[int]]:
+    """The request parts, and the track ids of the people included in it."""
     h, w = frame.shape[:2]
     parts: list[dict] = []
 
@@ -100,7 +107,10 @@ CRITICAL:
 1. Report a violation ONLY if you clearly see it in the images. If unsure, or the
    person complies, or it cannot be seen (too small, hidden, blurred), do not report it.
 2. Never invent a violation. An empty list is the right answer for a compliant scene.
-3. box2d uses 0-1000 coordinates, origin top-left: {{"ymin":int,"xmin":int,"ymax":int,"xmax":int}}."""
+3. box2d uses 0-1000 coordinates, origin top-left: {{"ymin":int,"xmin":int,"ymax":int,"xmax":int}}.
+4. Check EVERY target one by one. When several people break a rule, give one entry
+   per person (two people without a helmet means two entries). Never merge them or
+   report only the clearest one."""
     else:
         rules_text = ("No safety rules apply to this camera. Set \"violations\" to an "
                       "empty list and only fill in the scene log below.")
@@ -133,7 +143,7 @@ CRITICAL:
 
 Reply with JSON exactly in this shape:
 {{"violations":[{{"ruleId":"R<id>","isViolated":true,"confidence":<50-100>,"targetId":<int or null>,"explanation":"<what is visible>","box2d":<object or null>}}],"sceneSummary":"<one short sentence>"{extra_shape}}}"""})
-    return parts
+    return parts, [p.track_id for p in targets]
 
 
 def _parse_json(text: str) -> dict:
@@ -190,7 +200,8 @@ def _observations(data: dict, track_ids: set[int], zone_ids: set[int]) -> Observ
 
 def judge(frame: np.ndarray, people: list[Person], rules: list[Rule], zones=None) -> Scan:
     """Raises meta_client.MetaError / ValueError when the answer cannot be used."""
-    text = meta_client.chat(SYSTEM, build_request(frame, people, rules, zones))
+    parts, sent = _build(frame, people, rules, zones)
+    text = meta_client.chat(SYSTEM, parts)
     data = _parse_json(text)
 
     valid_ids = {r.id for r in rules}
@@ -219,4 +230,4 @@ def judge(frame: np.ndarray, people: list[Person], rules: list[Rule], zones=None
     gate_ids = {z.id for z in (zones or []) if z.kind in ("gate", "exit")}
     observations = (_observations(data, set(by_track), gate_ids)
                     if config.SCENE_LOG else None)
-    return Scan(hits, str(data.get("sceneSummary", ""))[:300], observations)
+    return Scan(hits, str(data.get("sceneSummary", ""))[:300], observations, sent)

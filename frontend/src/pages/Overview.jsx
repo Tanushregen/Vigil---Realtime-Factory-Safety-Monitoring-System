@@ -1,8 +1,72 @@
-
 import { useEffect, useState } from 'react'
+import {
+  Cctv,
+  CircleCheck,
+  CircleHelp,
+  Factory,
+  Server,
+  TriangleAlert,
+  Video,
+  VideoOff,
+} from 'lucide-react'
+import PageHeader from '../components/PageHeader'
+import './Overview.css'
 
+const STATUS_COLORS = {
+  online: '#10b981',
+  unknown: '#f59e0b',
+  offline: '#ef4444',
+}
 
-function Overview() {
+const RING_RADIUS = 78
+const RING_LENGTH = 2 * Math.PI * RING_RADIUS
+
+// Donut chart drawn as stacked SVG arcs; it follows the counts it is given
+function StatusDonut({ segments, total }) {
+  let used = 0
+
+  return (
+    <div className="ov-donut">
+      <svg viewBox="0 0 200 200" role="img" aria-label="Camera status chart">
+        <circle
+          className="ov-donut-track"
+          cx="100"
+          cy="100"
+          r={RING_RADIUS}
+        />
+
+        {total > 0 &&
+          segments
+            .filter(segment => segment.value > 0)
+            .map(segment => {
+              const length = (segment.value / total) * RING_LENGTH
+              const offset = -used
+              used += length
+
+              return (
+                <circle
+                  key={segment.key}
+                  className="ov-donut-arc"
+                  cx="100"
+                  cy="100"
+                  r={RING_RADIUS}
+                  stroke={segment.color}
+                  strokeDasharray={`${length} ${RING_LENGTH - length}`}
+                  strokeDashoffset={offset}
+                />
+              )
+            })}
+      </svg>
+
+      <div className="ov-donut-center">
+        <strong>{total}</strong>
+        <span>Total Cameras</span>
+      </div>
+    </div>
+  )
+}
+
+function Overview({ onOpenAlerts }) {
   const [cameras, setCameras] = useState([])
   const [dvrs, setDvrs] = useState([])
   const [healthHistory, setHealthHistory] = useState([])
@@ -15,10 +79,10 @@ function Overview() {
       if (isManual) setRefreshing(true)
 
       const [cameraResponse, dvrResponse, historyResponse] = await Promise.all([
-          fetch('/api/cameras'),
-          fetch('/api/dvrs'),
-          fetch('/api/cameras/health-history?days=7')
-    ])
+        fetch('/api/cameras'),
+        fetch('/api/dvrs'),
+        fetch('/api/cameras/health-history?days=7'),
+      ])
 
       if (!cameraResponse.ok || !dvrResponse.ok || !historyResponse.ok) {
         throw new Error('Unable to fetch dashboard data')
@@ -32,6 +96,7 @@ function Overview() {
       setDvrs(Array.isArray(dvrData) ? dvrData : [])
       setHealthHistory(Array.isArray(historyData) ? historyData : [])
       setError('')
+
     } catch (err) {
       console.error('Overview fetch error:', err)
       setError(err.message || 'Unable to load overview.')
@@ -60,364 +125,327 @@ function Overview() {
   const unknownCount = cameras.length - onlineCount - offlineCount
 
   const total = cameras.length
+
+  const percentOf = value => (total ? Math.round((value / total) * 100) : 0)
+
+  const statusRows = [
+    { key: 'online', label: 'Operational', value: onlineCount },
+    { key: 'unknown', label: 'Unknown', value: unknownCount },
+    { key: 'offline', label: 'Offline', value: offlineCount },
+  ].map(row => ({ ...row, color: STATUS_COLORS[row.key] }))
+
   const lastSevenDays = Array.from({ length: 7 }, (_, index) => {
-  const date = new Date()
-  date.setHours(0, 0, 0, 0)
-  date.setDate(date.getDate() - (6 - index))
+    const date = new Date()
+    date.setHours(0, 0, 0, 0)
+    date.setDate(date.getDate() - (6 - index))
 
-  const dateKey = date.toLocaleDateString('en-CA')
+    const dateKey = date.toLocaleDateString('en-CA')
 
-  const dayHistory = healthHistory.filter(item =>
-    new Date(item.recorded_at).toLocaleDateString('en-CA') === dateKey
+    const dayHistory = healthHistory.filter(
+      item =>
+        new Date(item.recorded_at).toLocaleDateString('en-CA') === dateKey
+    )
+
+    return {
+      date: dateKey,
+      label: date.toLocaleDateString('en-IN', { weekday: 'short' }),
+      online: dayHistory.filter(item => item.status === 'online').length,
+      offline: dayHistory.filter(item => item.status === 'offline').length,
+    }
+  })
+
+  const maxHistoryValue = Math.max(
+    1,
+    ...lastSevenDays.map(day => day.online + day.offline)
   )
-
-  return {
-    date: dateKey,
-    label: date.toLocaleDateString('en-IN', {
-      weekday: 'short'
-    }),
-    online: dayHistory.filter(item => item.status === 'online').length,
-    offline: dayHistory.filter(item => item.status === 'offline').length
-  }
-})
-  const operationalPercent = total ? (onlineCount / total) * 100 : 0
-  const warningPercent = total ? (unknownCount / total) * 100 : 0
-  const criticalPercent = total ? (offlineCount / total) * 100 : 0
-
-  const donutStyle = {
-    background: total
-      ? `conic-gradient(
-          #10b981 0% ${operationalPercent}%,
-          #f59e0b ${operationalPercent}% ${operationalPercent + warningPercent}%,
-          #ef4444 ${operationalPercent + warningPercent}% 100%
-        )`
-      : '#e5e7eb'
-  }
 
   if (loading) {
     return (
-      <div className="overview-loading">
-        <div className="loading-spinner" />
+      <div className="ov-loading">
+        <div className="ov-spinner" />
         <p>Loading factory overview...</p>
       </div>
     )
   }
 
   return (
-    <div className="overview-page">
-
-      {/* Page Header */}
-      <header className="overview-header">
-        <div>
-          <div className="overview-breadcrumb">VIGIL / Dashboard</div>
-          <h1>Factory Overview</h1>
-          <p>Monitor your factory surveillance and camera infrastructure.</p>
-        </div>
-
-        <button
-          className="overview-refresh"
-          onClick={() => fetchOverview(true)}
-          disabled={refreshing}
-        >
-          <span className={refreshing ? 'refresh-icon spinning' : 'refresh-icon'}>
-            ↻
-          </span>
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </header>
+    <div className="ov-page">
+      <PageHeader
+        icon={Factory}
+        title="Factory Overview"
+        subtitle="Monitor your factory surveillance and camera infrastructure."
+        crumbs={['VIGIL', 'Dashboard']}
+        onOpenAlerts={onOpenAlerts}
+        onRefresh={() => fetchOverview(true)}
+        refreshing={refreshing}
+      />
 
       {error && (
-        <div className="overview-error">
-          {error}
+        <div className="ov-error">
+          <span>{error}</span>
           <button onClick={() => fetchOverview(true)}>Retry</button>
         </div>
       )}
 
-      {/* Summary Cards */}
-      <section className="overview-stats">
-
-        <div className="overview-stat-card">
-          <div className="overview-stat-top">
-            <div className="overview-stat-icon blue-icon">▣</div>
-            <span className="overview-stat-label">Infrastructure</span>
+      {/* KPI cards */}
+      <section className="ov-stats">
+        <article className="ov-card">
+          <div className="ov-card-head">
+            <span className="ov-icon blue">
+              <Video size={24} />
+            </span>
+            <h3>Infrastructure</h3>
           </div>
-          <p>Total Cameras</p>
-          <h2>{total}</h2>
-          <span className="overview-stat-note">Registered cameras</span>
-        </div>
+          <p className="ov-card-label">Total Cameras</p>
+          <strong className="ov-card-value">{total}</strong>
+          <span className="ov-card-note">Registered cameras</span>
+          <Cctv className="ov-card-art blue" size={64} strokeWidth={1.4} />
+        </article>
 
-        <div className="overview-stat-card">
-          <div className="overview-stat-top">
-            <div className="overview-stat-icon green-icon">✓</div>
-            <span className="overview-status-dot green-dot" />
+        <article className="ov-card">
+          <div className="ov-card-head">
+            <span className="ov-icon green">
+              <CircleCheck size={24} />
+            </span>
+            <h3>Online</h3>
+            <span className="ov-dot green" />
           </div>
-          <p>Online Cameras</p>
-          <h2 className="green-text">{onlineCount}</h2>
-          <span className="overview-stat-note">Operational cameras</span>
-        </div>
+          <p className="ov-card-label">Online Cameras</p>
+          <strong className="ov-card-value green">{onlineCount}</strong>
+          <span className="ov-card-note">Operational cameras</span>
+        </article>
 
-        <div className="overview-stat-card">
-          <div className="overview-stat-top">
-            <div className="overview-stat-icon red-icon">!</div>
-            <span className="overview-status-dot red-dot" />
+        <article className="ov-card">
+          <div className="ov-card-head">
+            <span className="ov-icon red">
+              <TriangleAlert size={24} />
+            </span>
+            <h3>Offline</h3>
+            <span className="ov-dot red" />
           </div>
-          <p>Offline Cameras</p>
-          <h2 className="red-text">{offlineCount}</h2>
-          <span className="overview-stat-note">Disconnected cameras</span>
-        </div>
+          <p className="ov-card-label">Offline Cameras</p>
+          <strong className="ov-card-value red">{offlineCount}</strong>
+          <span className="ov-card-note">Disconnected cameras</span>
+          <VideoOff className="ov-card-art red" size={64} strokeWidth={1.4} />
+        </article>
 
-        <div className="overview-stat-card">
-          <div className="overview-stat-top">
-            <div className="overview-stat-icon purple-icon">▤</div>
-            <span className="overview-stat-label">Infrastructure</span>
+        <article className="ov-card">
+          <div className="ov-card-head">
+            <span className="ov-icon purple">
+              <Server size={24} />
+            </span>
+            <h3>Infrastructure</h3>
           </div>
-          <p>Registered DVR / NVR</p>
-          <h2>{dvrs.length}</h2>
-          <span className="overview-stat-note">Connected recorders registered</span>
-        </div>
-
+          <p className="ov-card-label">Registered DVR / NVR</p>
+          <strong className="ov-card-value">{dvrs.length}</strong>
+          <span className="ov-card-note">Connected recorders registered</span>
+          <Server className="ov-card-art purple" size={64} strokeWidth={1.4} />
+        </article>
       </section>
 
       {/* Analytics */}
-      <section className="overview-analytics">
-
-        <div className="overview-panel">
-          <div className="overview-panel-header">
+      <section className="ov-analytics">
+        <div className="ov-panel">
+          <div className="ov-panel-head">
             <div>
               <h2>Camera Status Distribution</h2>
               <p>Current camera health breakdown</p>
             </div>
-            <span className="overview-live-label">LIVE STATUS</span>
+            <span className="ov-live">
+              <i /> LIVE STATUS
+            </span>
           </div>
 
-          <div className="donut-layout">
-            <div className="donut-chart" style={donutStyle}>
-              <div className="donut-hole">
-                <strong>{total}</strong>
-                <span>Total Cameras</span>
-              </div>
-            </div>
+          <div className="ov-donut-layout">
+            <StatusDonut segments={statusRows} total={total} />
 
-            <div className="donut-legend">
-              <div>
-                <span className="legend-dot operational" />
-                <div>
-                  <strong>Operational</strong>
-                  <small>{onlineCount} cameras</small>
-                </div>
-                <b>{operationalPercent.toFixed(0)}%</b>
-              </div>
-
-              <div>
-                <span className="legend-dot warning" />
-                <div>
-                  <strong>Unknown</strong>
-                  <small>{unknownCount} cameras</small>
-                </div>
-                <b>{warningPercent.toFixed(0)}%</b>
-              </div>
-
-              <div>
-                <span className="legend-dot critical" />
-                <div>
-                  <strong>Critical</strong>
-                  <small>{offlineCount} cameras</small>
-                </div>
-                <b>{criticalPercent.toFixed(0)}%</b>
-              </div>
-            </div>
+            <ul className="ov-legend">
+              {statusRows.map(row => (
+                <li key={row.key}>
+                  <i style={{ background: row.color }} />
+                  <div>
+                    <strong>{row.label}</strong>
+                    <small>
+                      {row.value} camera{row.value === 1 ? '' : 's'}
+                    </small>
+                  </div>
+                  <b>{percentOf(row.value)}%</b>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
-        <div className="overview-panel">
-          <div className="overview-panel-header">
+        <div className="ov-panel">
+          <div className="ov-panel-head">
             <div>
               <h2>Camera Health Overview</h2>
               <p>Current infrastructure status</p>
             </div>
           </div>
 
-          <div className="health-summary">
-            <div className="health-summary-item">
-              <span>Online</span>
-              <strong className="green-text">{onlineCount}</strong>
+          <div className="ov-health">
+            <div className="ov-health-card green">
+              <span className="ov-icon green">
+                <Video size={24} />
+              </span>
+              <p>Online</p>
+              <strong>{onlineCount}</strong>
             </div>
-            <div className="health-summary-item">
-              <span>Offline</span>
-              <strong className="red-text">{offlineCount}</strong>
+
+            <div className="ov-health-card red">
+              <span className="ov-icon red">
+                <VideoOff size={24} />
+              </span>
+              <p>Offline</p>
+              <strong>{offlineCount}</strong>
             </div>
-            <div className="health-summary-item">
-              <span>Unknown</span>
+
+            <div className="ov-health-card neutral">
+              <span className="ov-icon neutral">
+                <CircleHelp size={24} />
+              </span>
+              <p>Unknown</p>
               <strong>{unknownCount}</strong>
             </div>
           </div>
 
-          <div className="health-bar-list">
-            {[
-              { label: 'Operational', value: onlineCount, color: '#10b981' },
-              { label: 'Unknown', value: unknownCount, color: '#f59e0b' },
-              { label: 'Offline', value: offlineCount, color: '#ef4444' }
-            ].map(item => (
-              <div className="health-bar-item" key={item.label}>
-                <div className="health-bar-label">
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                </div>
-                <div className="health-bar-track">
+          <p className="ov-footnote">
+            Based on the latest camera connectivity status.
+          </p>
+        </div>
+      </section>
+
+      {/* 7-day camera activity */}
+      <section className="ov-panel">
+        <div className="ov-panel-head">
+          <div>
+            <h2>7-Day Camera Activity</h2>
+            <p>Daily online and offline status changes</p>
+          </div>
+          <span className="ov-pill">Last 7 Days</span>
+        </div>
+
+        {healthHistory.length === 0 ? (
+          <div className="ov-empty">
+            <h3>No historical activity yet</h3>
+            <p>Camera status changes will appear here when recorded.</p>
+          </div>
+        ) : (
+          <div className="ov-history">
+            {lastSevenDays.map(day => (
+              <div className="ov-history-day" key={day.date}>
+                <div className="ov-history-bars">
                   <div
-                    className="health-bar-fill"
+                    className="ov-bar online"
+                    style={{ height: `${(day.online / maxHistoryValue) * 100}%` }}
+                    title={`Online changes: ${day.online}`}
+                  />
+                  <div
+                    className="ov-bar offline"
                     style={{
-                      width: `${total ? (item.value / total) * 100 : 0}%`,
-                      background: item.color
+                      height: `${(day.offline / maxHistoryValue) * 100}%`,
                     }}
+                    title={`Offline changes: ${day.offline}`}
                   />
                 </div>
+                <span>{day.label}</span>
               </div>
             ))}
           </div>
+        )}
 
-          <p className="health-footnote">
-            Based on the latest camera connectivity status. 
-          </p>
+        <div className="ov-history-legend">
+          <span>
+            <i style={{ background: STATUS_COLORS.online }} /> Online changes
+          </span>
+          <span>
+            <i style={{ background: STATUS_COLORS.offline }} /> Offline changes
+          </span>
+        </div>
+      </section>
+
+      {/* Recent activity */}
+      <section className="ov-panel">
+        <div className="ov-panel-head">
+          <div>
+            <h2>Recent Activity Logs</h2>
+            <p>Latest camera connectivity changes</p>
+          </div>
+          <span className="ov-pill">{healthHistory.length} Records</span>
         </div>
 
-      </section>
-      
-{/* 7-Day Camera Activity */}
-<section className="overview-panel history-panel">
-  <div className="overview-panel-header">
-    <div>
-      <h2>7-Day Camera Activity</h2>
-      <p>Daily online and offline status changes</p>
-    </div>
-    <span className="recorder-count">Last 7 Days</span>
-  </div>
-
-  {healthHistory.length === 0 ? (
-    <div className="overview-empty">
-      <h3>No historical activity yet</h3>
-      <p>Camera status changes will appear here when recorded.</p>
-    </div>
-  ) : (
-    <div className="history-chart">
-      {lastSevenDays.map(day => {
-        const maxValue = Math.max(
-          1,
-          ...lastSevenDays.map(d => d.online + d.offline)
-        )
-
-        return (
-          <div className="history-day" key={day.date}>
-            <div className="history-bars">
-              <div
-                className="history-bar online-history-bar"
-                style={{
-                  height: `${(day.online / maxValue) * 100}%`
-                }}
-                title={`Online changes: ${day.online}`}
-              />
-              <div
-                className="history-bar offline-history-bar"
-                style={{
-                  height: `${(day.offline / maxValue) * 100}%`
-                }}
-                title={`Offline changes: ${day.offline}`}
-              />
-            </div>
-            <span>{day.label}</span>
+        {healthHistory.length === 0 ? (
+          <div className="ov-empty">
+            <h3>No recent activity</h3>
+            <p>Camera connectivity events will appear here.</p>
           </div>
-        )
-      })}
-    </div>
-  )}
-
-  <div className="history-legend">
-    <span><i className="legend-dot operational" /> Online changes</span>
-    <span><i className="legend-dot critical" /> Offline changes</span>
-  </div>
-</section>
-
-{/* Recent Activity Logs */}
-<section className="overview-panel history-panel">
-  <div className="overview-panel-header">
-    <div>
-      <h2>Recent Activity Logs</h2>
-      <p>Latest camera connectivity changes</p>
-    </div>
-    <span className="recorder-count">
-      {healthHistory.length} Records
-    </span>
-  </div>
-
-  {healthHistory.length === 0 ? (
-    <div className="overview-empty">
-      <h3>No recent activity</h3>
-      <p>Camera connectivity events will appear here.</p>
-    </div>
-  ) : (
-    <div className="activity-table-wrapper">
-      <table className="activity-table">
-        <thead>
-          <tr>
-            <th>Timestamp</th>
-            <th>Camera Name</th>
-            <th>Activity</th>
-            <th>Location</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {healthHistory.slice(0, 10).map(item => (
-            <tr key={item.id}>
-              <td>
-                {new Date(item.recorded_at).toLocaleString()}
-              </td>
-              <td>{item.camera_name}</td>
-              <td>
-                {item.status === 'online'
-                  ? 'Camera connected'
-                  : 'Camera disconnected'}
-              </td>
-              <td>{item.zone || 'Not assigned'}</td>
-              <td>
-                <span className={`activity-status ${item.status}`}>
-                  {item.status}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</section>
+        ) : (
+          <div className="ov-table-wrap">
+            <table className="ov-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Camera Name</th>
+                  <th>Activity</th>
+                  <th>Location</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {healthHistory.slice(0, 10).map(item => (
+                  <tr key={item.id}>
+                    <td>{new Date(item.recorded_at).toLocaleString()}</td>
+                    <td>{item.camera_name}</td>
+                    <td>
+                      {item.status === 'online'
+                        ? 'Camera connected'
+                        : 'Camera disconnected'}
+                    </td>
+                    <td>{item.zone || 'Not assigned'}</td>
+                    <td>
+                      <span className={`ov-status ${item.status}`}>
+                        {item.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {/* DVR / NVR */}
-      <section className="overview-panel recorder-panel">
-        <div className="overview-panel-header">
+      <section className="ov-panel">
+        <div className="ov-panel-head">
           <div>
             <h2>Registered DVR / NVR Devices</h2>
             <p>Manage your registered recording devices</p>
           </div>
-          <span className="recorder-count">{dvrs.length} Devices</span>
+          <span className="ov-pill">{dvrs.length} Devices</span>
         </div>
 
         {dvrs.length === 0 ? (
-          <div className="overview-empty">
-            <div className="empty-icon">▣</div>
+          <div className="ov-empty">
+            <span className="ov-icon purple">
+              <Server size={24} />
+            </span>
             <h3>No recording devices yet</h3>
             <p>Registered DVR / NVR devices will appear here.</p>
           </div>
         ) : (
-          <div className="recorder-grid">
+          <div className="ov-recorders">
             {dvrs.map(dvr => (
-              <div className="recorder-card" key={dvr.id}>
-                <div className="recorder-card-icon">▣</div>
-                <div className="recorder-card-info">
+              <div className="ov-recorder" key={dvr.id}>
+                <span className="ov-icon purple">
+                  <Server size={24} />
+                </span>
+                <div className="ov-recorder-info">
                   <h3>{dvr.name}</h3>
                   <p>{dvr.brand || 'Recorder'}</p>
                 </div>
-                <div className="recorder-details">
+                <div className="ov-recorder-details">
                   <span>IP Address</span>
                   <strong>{dvr.ip}</strong>
                   <span>Port: {dvr.port}</span>
@@ -428,7 +456,6 @@ function Overview() {
           </div>
         )}
       </section>
-
     </div>
   )
 }

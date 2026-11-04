@@ -1,5 +1,7 @@
 
 import { useState } from 'react'
+import { ArrowLeft, Video } from 'lucide-react'
+import PageHeader from '../components/PageHeader'
 
 const zones = [
   'Shop floor',
@@ -11,7 +13,7 @@ const zones = [
   'Other',
 ]
 
-function CameraDetail({ camera, onBack, onDeleted, onUpdated }) {
+function CameraDetail({ camera, onBack, onDeleted, onUpdated, onOpenAlerts }) {
   const [name, setName] = useState(camera.name || '')
   const [zone, setZone] = useState(camera.zone || 'Other')
   const [analysisEnabled, setAnalysisEnabled] = useState(
@@ -92,13 +94,18 @@ function CameraDetail({ camera, onBack, onDeleted, onUpdated }) {
   }
 
   return (
-    <div className="detail-page">
-      <button className="back-button" onClick={onBack}>
-        ← Back to Cameras
-      </button>
+    <div className="ov-page detail-page">
+      <PageHeader
+        icon={Video}
+        title={name}
+        subtitle="Camera details and live monitoring"
+        crumbs={['VIGIL', 'Cameras', camera.name || name]}
+        onOpenAlerts={onOpenAlerts}
+      />
 
-      <h1>{name}</h1>
-      <p className="subtitle">Camera details and live monitoring</p>
+      <button className="cm-back" onClick={onBack}>
+        <ArrowLeft size={18} /> Back to Cameras
+      </button>
 
       <section className="live-section">
         <h2>Live Camera View</h2>
@@ -106,7 +113,7 @@ function CameraDetail({ camera, onBack, onDeleted, onUpdated }) {
         <iframe
           key={camera.id}
           title={`Camera ${camera.id} live view`}
-          src={`http://127.0.0.1:1984/stream.html?src=cam${camera.id}&mode=webrtc`}
+          src={`/go2rtc/stream.html?src=cam${camera.id}&mode=mse,webrtc`}
           allow="autoplay; fullscreen"
           className="live-player"
         />

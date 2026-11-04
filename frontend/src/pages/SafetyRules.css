@@ -1,16 +1,16 @@
 /* Safety Rules wizard — scoped with the sr- prefix */
 
 .sr-page {
-  --sr-navy: #1f3354;
-  --sr-navy-hover: #172235;
-  --sr-ring: rgba(31, 51, 84, 0.14);
-  --sr-text: #111827;
-  --sr-muted: #6b7280;
-  --sr-faint: #b6bdc8;
-  --sr-border: #e5eaf1;
-  --sr-input-border: #d8dee8;
+  --sr-navy: #1763d8;
+  --sr-navy-hover: #1250ad;
+  --sr-ring: rgba(23, 99, 216, 0.16);
+  --sr-text: #101f38;
+  --sr-muted: #5b6b82;
+  --sr-faint: #9aa8bd;
+  --sr-border: #e1e9f5;
+  --sr-input-border: #d3deef;
   --sr-surface: #ffffff;
-  --sr-subtle: #f8fafc;
+  --sr-subtle: #f6f9ff;
   --sr-danger: #dc2626;
 
   width: 100%;
@@ -638,4 +638,27 @@
   .sr-inline-actions {
     flex-wrap: wrap;
   }
+}
+
+/* VIGIL theme */
+
+.sr-step-count {
+  color: var(--sr-muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sr-card {
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 32px rgba(16, 31, 56, 0.06);
+}
+
+.sr-field input,
+.sr-field select {
+  border-radius: 11px;
+}
+
+.sr-button {
+  border-radius: 12px;
 }

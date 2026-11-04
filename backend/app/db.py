@@ -1,6 +1,7 @@
 
 from datetime import datetime
 from pathlib import Path
+from sqlalchemy import Float
 
 from sqlalchemy import (
     create_engine,
@@ -86,6 +87,11 @@ class Camera(Base):
     analysis_enabled = Column(Boolean, default=False, server_default="0")
 
     dvr = relationship("DVR", back_populates="cameras")
+
+    storage_folder = Column(String, nullable=True)
+    segment_seconds = Column(Integer, nullable=True)
+    clip_pre_seconds = Column(Integer, nullable=True)
+    clip_post_seconds = Column(Integer, nullable=True)
 
     group_members = relationship(
         "CameraGroupMember",
@@ -176,11 +182,26 @@ class SafetyPrompt(Base):
 
 
 # Create all database tables
+def _add_missing_columns():
+    wanted = {
+        "storage_folder": "VARCHAR",
+        "segment_seconds": "INTEGER",
+        "clip_pre_seconds": "INTEGER",
+        "clip_post_seconds": "INTEGER",
+    }
+    with engine.begin() as conn:
+        existing = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(cameras)")}
+        for name, col_type in wanted.items():
+            if name not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE cameras ADD COLUMN {name} {col_type}")
+
+
 def init_db():
     # Register the authentication tables with Base
     import app.auth.models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
 
 
 # Database dependency for FastAPI
@@ -190,6 +211,20 @@ def get_db():
         yield db
     finally:
         db.close()
+
+class Violation(Base):
+    __tablename__ = "violations"
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, nullable=False, index=True)
+    violation_type = Column(String, nullable=False, index=True)
+    prompt_id = Column(Integer, nullable=True)
+    confidence = Column(Float, nullable=True)
+    description = Column(String, nullable=True)
+    occurred_at = Column(DateTime, nullable=False, index=True)
+    clip_key = Column(String, nullable=False)
+    metadata_key = Column(String, nullable=False)
+
+
 # Camera health history table
 class CameraHealthHistory(Base):
     __tablename__ = "camera_health_history"

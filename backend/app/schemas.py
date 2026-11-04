@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.rtsp import SUPPORTED_SCHEMES
+
 
 ALLOWED_ZONES = [
     "Shop floor",
@@ -38,13 +40,15 @@ def validate_rtsp_url(value):
     try:
         parsed = urlsplit(value)
         if (
-            parsed.scheme.lower() != "rtsp"
+            parsed.scheme.lower() not in SUPPORTED_SCHEMES
             or not parsed.hostname
             or not parsed.port is None and not (1 <= parsed.port <= 65535)
         ):
             raise ValueError
     except ValueError:
-        raise ValueError("Enter a valid RTSP URL")
+        raise ValueError(
+            "Enter a valid stream URL (rtsp, rtsps, rtmp, rtmps, http, https or srt)"
+        )
 
     return value
 
@@ -84,6 +88,10 @@ class CameraUpdate(BaseModel):
     name: Optional[str] = None
     zone: Optional[str] = None
     analysis_enabled: Optional[bool] = None
+    
+    segment_seconds: int | None = Field(default=None, ge=10, le=86400)
+    clip_pre_seconds: int | None = Field(default=None, ge=0, le=60)
+    clip_post_seconds: int | None = Field(default=None, ge=0, le=60)
 
     @field_validator("name")
     @classmethod

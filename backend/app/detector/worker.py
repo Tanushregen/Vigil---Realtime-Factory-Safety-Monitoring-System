@@ -31,6 +31,7 @@ _scan_pool = ThreadPoolExecutor(max_workers=max(4, config.META_MAX_PARALLEL * 2)
 
 RULES_CACHE_SECONDS = 5.0
 POSTURE_EVENT_GAP = 5.0
+HEARTBEAT_SECONDS = 15.0     # how often a worker says what state it is in
 
 
 def _snapshot(people: list[Person]) -> list[Person]:
@@ -56,6 +57,9 @@ class CameraWorker(threading.Thread):
         self._last_posture_event = 0.0
         self._last_scanned_gray: np.ndarray | None = None
         self._fall_cooldown: dict[int, float] = {}
+        self._next_heartbeat = 0.0
+        self._seen_frame = False
+        self._pose_ready = False
 
         # status, shown by GET /api/cameras/{id}/detector
         self.status = {
@@ -74,6 +78,7 @@ class CameraWorker(threading.Thread):
         while not self.stop_event.is_set():
             try:
                 rules = self._current_rules()
+                self._heartbeat(rules)
                 if not rules and not config.FALL_DETECTION:
                     self.stop_event.wait(1.0)       # nothing to check: skip the pose model
                     continue
@@ -84,8 +89,16 @@ class CameraWorker(threading.Thread):
                     continue
                 frame, last_ts = item
                 last_detect = time.time()
+                if not self._seen_frame:
+                    self._seen_frame = True
+                    logger.info("[detector] cam%s: first frame received %dx%d",
+                                self.camera_id, frame.shape[1], frame.shape[0])
 
                 people = self._tracker.update(frame)
+                if not self._pose_ready:
+                    self._pose_ready = True
+                    logger.info("[detector] cam%s: pose model loaded, tracking people",
+                                self.camera_id)
                 self.status["people"] = len(people)
 
                 if config.FALL_DETECTION:
@@ -96,6 +109,34 @@ class CameraWorker(threading.Thread):
                 logger.exception("[detector] cam%s: loop error", self.camera_id)
                 self.stop_event.wait(2.0)
         logger.info("[detector] cam%s: stopped", self.camera_id)
+
+    def _heartbeat(self, rules: list[Rule]):
+        """Say what this worker is doing every HEARTBEAT_SECONDS, so silence never
+        has to be guessed at (no frames, no rules and 'all fine' look alike otherwise)."""
+        now = time.time()
+        if now < self._next_heartbeat:
+            return
+        first = self._next_heartbeat == 0.0
+        self._next_heartbeat = now + HEARTBEAT_SECONDS
+        if first:
+            return                      # the 'started' line just covers this moment
+
+        item = frames.get_latest_raw(self.camera_id)
+        if item is None:
+            stream = ("no frames from the camera stream (is go2rtc/the stream up?)"
+                      + (" - frames had arrived before" if self._seen_frame else ""))
+        else:
+            stream = "frames OK - last frame %.0fs ago" % (now - item[1])
+        if not rules:
+            rule_txt = "no enabled rules apply to this camera - idle"
+        else:
+            rule_txt = "%d rule(s) apply" % len(rules)
+        st = self.status
+        logger.info("[detector] cam%s: alive - %s; %s; %d people tracked; scans ok=%d "
+                    "failed=%d; violations raised=%d; scan %s", self.camera_id, stream,
+                    rule_txt, st["people"], st["scans_ok"], st["scans_failed"],
+                    st["violations_raised"],
+                    "in flight" if self._inflight else "not running")
 
     def _current_rules(self) -> list[Rule]:
         now = time.time()

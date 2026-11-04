@@ -15,11 +15,12 @@ logger = logging.getLogger(__name__)
 _workers: dict[int, "object"] = {}
 _lock = threading.Lock()
 _warned_no_key = False
+_logged_none_enabled = False
 
 
 def start_detectors() -> None:
     """Idempotent: safe to call repeatedly (it is called from the recovery loop)."""
-    global _warned_no_key
+    global _warned_no_key, _logged_none_enabled
     from app.detector import config, meta_client
     from app.detector.worker import CameraWorker
 
@@ -35,6 +36,13 @@ def start_detectors() -> None:
     finally:
         db.close()
 
+    if not camera_ids:
+        if not _logged_none_enabled:
+            logger.info("[detector] no cameras have analysis enabled - detector idle")
+            _logged_none_enabled = True
+    else:
+        _logged_none_enabled = False
+
     with _lock:
         for cid in camera_ids:
             worker = _workers.get(cid)
@@ -43,6 +51,7 @@ def start_detectors() -> None:
             worker = CameraWorker(cid)
             _workers[cid] = worker
             worker.start()
+            logger.info("[detector] started detector for camera %s", cid)
 
 
 def stop_detector(camera_id: int) -> None:

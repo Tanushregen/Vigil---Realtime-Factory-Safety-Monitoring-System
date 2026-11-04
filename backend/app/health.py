@@ -5,8 +5,7 @@ from datetime import datetime
 
 import httpx
 
-from app.db import SessionLocal, Camera
-
+from app.db import SessionLocal, Camera, CameraHealthHistory
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +15,8 @@ GO2RTC_API = "http://127.0.0.1:1984"
 async def check_camera_health():
     """
     Check camera health every 20 seconds using go2rtc JPEG frames.
+    Save camera status changes in health history.
     """
-
     while True:
         db = SessionLocal()
 
@@ -25,23 +24,19 @@ async def check_camera_health():
             cameras = db.query(Camera).all()
 
             async with httpx.AsyncClient(timeout=5.0) as client:
-
                 for camera in cameras:
                     previous_status = camera.status
 
                     try:
                         response = await client.get(
                             f"{GO2RTC_API}/api/frame.jpeg",
-                            params={
-                                "src": f"cam{camera.id}"
-                            }
+                            params={"src": f"cam{camera.id}"}
                         )
 
                         response.raise_for_status()
 
                         if (
-                            response.headers.get("content-type", "")
-                            .startswith("image/jpeg")
+                            response.headers.get("content-type", "").startswith("image/jpeg")
                             and response.content
                         ):
                             camera.status = "online"
@@ -56,14 +51,21 @@ async def check_camera_health():
                         if camera.fail_count >= 2:
                             camera.status = "offline"
 
+                    # Save history only when the status changes
                     if previous_status != camera.status:
+                        history = CameraHealthHistory(
+                            camera_id=camera.id,
+                            status=camera.status,
+                            recorded_at=datetime.utcnow()
+                        )
+
+                        db.add(history)
 
                         if camera.status == "online":
                             logger.info(
                                 "Camera %s is online or recovered",
                                 camera.id
                             )
-
                         elif camera.status == "offline":
                             logger.warning(
                                 "Camera %s changed to offline",

@@ -9,7 +9,7 @@ from app.health import check_camera_health
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt
+from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory
 from app.crypto import encrypt_password, decrypt_password
 from app.rtsp import build_urls, validate_rtsp_stream
 from app.schemas import CameraGroupUpdate, DVRCreate,CameraUpdate, CameraManualCreate, CameraRTSPUpdate, SafetyPromptCreate, SafetyPromptEnabledUpdate, CameraGroupCreate, CameraGroupUpdate, SafetyPromptCreate, SafetyPromptUpdate, SafetyPromptEnabledUpdate
@@ -30,18 +30,21 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+from app.auth import config as auth_config
+from app.auth.dependencies import enforce_authentication
+from app.auth.router import router as auth_router
 
 app = FastAPI(
     title="VIGIL API",
     description="Camera Ingestion and Management System",
-    version="1.0.0"
+    version="1.0.0",
+    # Every route requires a signed-in user unless listed in PUBLIC_PATHS
+    dependencies=[Depends(enforce_authentication)]
 )
+app.include_router(auth_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=auth_config.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -485,6 +488,42 @@ def get_cameras(
         }
         for camera in cameras
     ]
+
+@app.get("/api/cameras/health-history")
+def get_camera_health_history(
+    days: int = 7,
+    db: Session = Depends(get_db)
+):
+    if days < 1 or days > 30:
+        raise HTTPException(
+            status_code=400,
+            detail="Days must be between 1 and 30"
+        )
+
+    from datetime import datetime, timedelta
+
+    start_date = datetime.utcnow() - timedelta(days=days)
+
+    history = (
+        db.query(CameraHealthHistory, Camera.name, Camera.zone)
+        .join(Camera, CameraHealthHistory.camera_id == Camera.id)
+        .filter(CameraHealthHistory.recorded_at >= start_date)
+        .order_by(CameraHealthHistory.recorded_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": record.id,
+            "camera_id": record.camera_id,
+            "camera_name": camera_name,
+            "zone": zone,
+            "status": record.status,
+            "recorded_at": record.recorded_at.isoformat()
+        }
+        for record, camera_name, zone in history
+    ]
+
 @app.get("/api/cameras/{camera_id}/frame")
 def get_camera_frame(camera_id: int, db: Session = Depends(get_db)):
 

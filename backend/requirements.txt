@@ -1,7 +1,10 @@
+argon2-cffi
 cryptography
+email-validator
 fastapi
 httpx
 opencv-python
+PyJWT
 python-dotenv
 sqlalchemy
 uvicorn

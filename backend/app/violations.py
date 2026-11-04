@@ -34,6 +34,7 @@ def record_violation(
     violation_id: str | None = None,
     occurred_ts: float | None = None,
     annotation: dict | None = None,
+    scene_ref: dict | None = None,
 ) -> dict:
     """Cut a clip around the violation, upload it with its metadata, save a DB row.
 
@@ -189,6 +190,8 @@ def record_violation(
                 clip_key=clip_key,
                 metadata_key=metadata_key,
                 latency_ms=latency_ms,
+                zone_id=(scene_ref or {}).get("zone_id"),
+                visit_id=(scene_ref or {}).get("visit_id"),
             )
             db.add(row)
             db.commit()

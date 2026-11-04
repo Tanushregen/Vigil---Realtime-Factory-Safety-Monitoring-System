@@ -46,6 +46,7 @@ class SceneTracker:
         self._zones: dict[int, object] = {}              # zone id -> Zone (for alert texts)
         self._blocked: dict[int, int] = {}               # zone id -> blocked readings in a row
         self._gate_alert_at: dict[int, float] = {}       # zone id -> when it last alerted
+        self._entry_alert_at: dict[int, float] = {}      # zone id -> last "zone entry" alert
 
     # ------------------------------------------------------------ fast loop
     def update(self, now: float, people, width: int, height: int, zones) -> list[dict]:
@@ -57,11 +58,13 @@ class SceneTracker:
             return []
 
     def _event(self, kind: str, zone_id: int, violation_type: str, label: str,
-               description: str, track_id: int | None = None) -> dict:
+               description: str, track_id: int | None = None,
+               visit_id: int | None = None) -> dict:
         zone = self._zones.get(zone_id)
         return {
             "kind": kind, "violation_type": violation_type, "label": label,
             "description": description, "track_id": track_id, "zone_id": zone_id,
+            "visit_id": visit_id,
             "zone_name": zone.name if zone else f"Zone {zone_id}",
             "polygon": [list(p) for p in zone.polygon] if zone else None,
         }
@@ -85,6 +88,18 @@ class SceneTracker:
                 visit["last_seen"] = now
                 if visit["id"] is None and now - visit["entered"] >= MIN_VISIT:
                     self._persist(key, visit)
+                zone = self._zones.get(key[0])
+                if (config.SCENE_ALERTS and config.SCENE_ZONE_ALERTS and zone is not None
+                        and zone.kind == "area" and getattr(zone, "alert_on_entry", True)
+                        and visit["id"] is not None and "entry" not in visit["alerted"]
+                        and now - visit["entered"] >= config.SCENE_ENTRY_SECONDS):
+                    visit["alerted"].add("entry")
+                    if now - self._entry_alert_at.get(key[0], -1e9) >= config.SCENE_ENTRY_GAP:
+                        self._entry_alert_at[key[0]] = now
+                        events.append(self._event(
+                            "zone_entry", key[0], "scene_zone_entry",
+                            f"#{key[1]} in {zone.name}",
+                            f"Person #{key[1]} entered {zone.name}", key[1], visit["id"]))
                 limit = config.SCENE_STAY_ALERT_MIN * 60
                 if (config.SCENE_ALERTS and limit > 0 and "stay" not in visit["alerted"]
                         and now - visit["entered"] >= limit):
@@ -94,7 +109,7 @@ class SceneTracker:
                     events.append(self._event(
                         "overstay", key[0], "scene_overstay", f"#{key[1]} stayed {minutes} min",
                         f"Person #{key[1]} has been in {zone.name if zone else 'the zone'} "
-                        f"for {minutes} min", key[1]))
+                        f"for {minutes} min", key[1], visit["id"]))
 
         zone_ids = {zone.id for zone in zones}
         for key, visit in list(self._open.items()):
@@ -182,7 +197,7 @@ class SceneTracker:
                             "ppe_missing", zone_id, f"scene_missing_{item}",
                             f"#{track_id} no {item}",
                             f"Person #{track_id} in {zone.name if zone else 'the zone'} "
-                            f"is not wearing {item}", track_id))
+                            f"is not wearing {item}", track_id, visit["id"]))
                 if visit["id"] is not None:        # a visit not logged yet saves it when it is
                     db.query(ZoneVisit).filter(ZoneVisit.id == visit["id"]).update(
                         {"ppe": json.dumps(visit["ppe"]), "ppe_at": now})

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, DoorOpen, Layers, ScanEye, X } from 'lucide-react'
+import { Check, DoorOpen, Layers, Play, ScanEye, X } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import './SceneLog.css'
 
@@ -48,6 +48,7 @@ function SceneLog({ onOpenAlerts }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [now, setNow] = useState(() => Date.now())
+  const [clip, setClip] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -92,6 +93,19 @@ function SceneLog({ onOpenAlerts }) {
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  // Play the clip of a scene alert (the same clip is listed under Alerts)
+  async function playClip(alertId, title) {
+    setClip({ title, url: '', error: '' })
+    try {
+      const response = await fetch(`/api/violations/${alertId}/clip`)
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.detail || 'Could not load the clip')
+      setClip({ title, url: data.url, error: '' })
+    } catch (err) {
+      setClip({ title, url: '', error: err.message })
+    }
+  }
 
   const zoneCount = live.reduce((sum, camera) => sum + camera.zones.length, 0)
 
@@ -160,6 +174,17 @@ function SceneLog({ onOpenAlerts }) {
                                 {formatDuration((now - Date.parse(person.since)) / 1000)}
                               </span>
                               <PpeBadges ppe={person.ppe} />
+                              {person.alert_id && (
+                                <button
+                                  type="button"
+                                  className="sl-clip-btn"
+                                  onClick={() =>
+                                    playClip(person.alert_id, `Person #${person.track_id} in ${zone.name}`)
+                                  }
+                                >
+                                  <Play size={13} /> Clip
+                                </button>
+                              )}
                             </li>
                           ))}
                         </ul>
@@ -197,6 +222,7 @@ function SceneLog({ onOpenAlerts }) {
                       <th>Time there</th>
                       <th>Safety gear</th>
                       <th>Status</th>
+                      <th>Clip</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -215,6 +241,24 @@ function SceneLog({ onOpenAlerts }) {
                             {visit.present ? 'Here now' : 'Left'}
                           </span>
                         </td>
+                        <td>
+                          {visit.alert_id ? (
+                            <button
+                              type="button"
+                              className="sl-clip-btn"
+                              onClick={() =>
+                                playClip(
+                                  visit.alert_id,
+                                  `Person #${visit.track_id} in ${visit.zone_name || 'a deleted zone'}`
+                                )
+                              }
+                            >
+                              <Play size={13} /> Play
+                            </button>
+                          ) : (
+                            <span className="sl-muted">-</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -223,6 +267,41 @@ function SceneLog({ onOpenAlerts }) {
             )}
           </section>
         </>
+      )}
+
+      {clip && (
+        <div className="sl-clip-modal" onClick={() => setClip(null)}>
+          <div className="sl-clip-card" onClick={event => event.stopPropagation()}>
+            <div className="sl-clip-head">
+              <h3>{clip.title}</h3>
+              <button type="button" onClick={() => setClip(null)} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+
+            {clip.error ? (
+              <p className="error-message">{clip.error}</p>
+            ) : clip.url ? (
+              <video key={clip.url} src={clip.url} controls autoPlay playsInline />
+            ) : (
+              <p className="sl-muted">Loading clip...</p>
+            )}
+
+            <div className="sl-clip-foot">
+              <span>The zone is shaded and the person boxed. The same clip is under Alerts.</span>
+              <button
+                type="button"
+                className="sl-clip-btn"
+                onClick={() => {
+                  setClip(null)
+                  onOpenAlerts()
+                }}
+              >
+                Open Alerts
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

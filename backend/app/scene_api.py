@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
-from app.db import Camera, CameraZone, ZoneState, ZoneVisit, get_db
+from sqlalchemy import func
+
+from app.db import Camera, CameraZone, Violation, ZoneState, ZoneVisit, get_db
 from app.zones import KINDS, parse_polygon
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,7 @@ class ZoneCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     kind: Literal["area", "gate", "exit"] = "area"
     polygon: list[list[float]]
+    alert_on_entry: bool = True
 
     @field_validator("name")
     @classmethod
@@ -58,6 +61,7 @@ class ZoneUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=60)
     kind: Optional[Literal["area", "gate", "exit"]] = None
     polygon: Optional[list[list[float]]] = None
+    alert_on_entry: Optional[bool] = None
 
     @field_validator("name")
     @classmethod
@@ -82,6 +86,7 @@ def _zone_json(zone: CameraZone) -> dict:
         "name": zone.name,
         "kind": zone.kind,
         "polygon": json.loads(zone.polygon),
+        "alert_on_entry": True if zone.alert_on_entry is None else bool(zone.alert_on_entry),
     }
 
 
@@ -112,7 +117,7 @@ def create_zone(camera_id: int, data: ZoneCreate, db: Session = Depends(get_db))
         raise HTTPException(status_code=400, detail="This camera already has a zone with that name")
 
     zone = CameraZone(camera_id=camera_id, name=data.name, kind=data.kind,
-                      polygon=json.dumps(data.polygon))
+                      polygon=json.dumps(data.polygon), alert_on_entry=data.alert_on_entry)
     db.add(zone)
     db.commit()
     db.refresh(zone)
@@ -140,6 +145,8 @@ def update_zone(zone_id: int, data: ZoneUpdate, db: Session = Depends(get_db)):
         zone.kind = data.kind
     if data.polygon is not None:
         zone.polygon = json.dumps(data.polygon)
+    if data.alert_on_entry is not None:
+        zone.alert_on_entry = data.alert_on_entry
 
     db.commit()
     db.refresh(zone)
@@ -163,6 +170,19 @@ def delete_zone(zone_id: int, db: Session = Depends(get_db)):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _alert_ids(db: Session, visit_ids: list[int]) -> dict[int, int]:
+    """{visit id: the newest alert (with its clip) raised for that visit}."""
+    if not visit_ids:
+        return {}
+    rows = (
+        db.query(Violation.visit_id, func.max(Violation.id))
+        .filter(Violation.visit_id.in_(visit_ids))
+        .group_by(Violation.visit_id)
+        .all()
+    )
+    return {visit_id: alert_id for visit_id, alert_id in rows}
 
 
 def _ppe(text: Optional[str]) -> dict:
@@ -194,9 +214,12 @@ def scene_live(camera_id: Optional[int] = None, db: Session = Depends(get_db)):
         .order_by(ZoneVisit.entered_at)
         .all()
     )
+    alerts = _alert_ids(db, [visit.id for visit in present])
     people: dict[int, list[dict]] = {}
     for visit in present:
         people.setdefault(visit.zone_id, []).append({
+            "visit_id": visit.id,
+            "alert_id": alerts.get(visit.id),
             "track_id": visit.track_id,
             "since": _iso(visit.entered_at),
             "seconds": int((now - visit.entered_at).total_seconds()),
@@ -231,6 +254,7 @@ def scene_live(camera_id: Optional[int] = None, db: Session = Depends(get_db)):
             "id": zone.id,
             "name": zone.name,
             "kind": zone.kind,
+            "alert_on_entry": True if zone.alert_on_entry is None else bool(zone.alert_on_entry),
             "state": state.state if state and zone.kind in ("gate", "exit") else None,
             "state_at": _iso(state.observed_at) if state and zone.kind in ("gate", "exit") else None,
             "people": people.get(zone.id, []),
@@ -274,6 +298,7 @@ def scene_visits(
         .filter(Camera.id.in_({row.camera_id for row in rows})).all()
     }
 
+    alerts = _alert_ids(db, [row.id for row in rows])
     items = []
     for row in rows:
         present = row.left_at is None and row.last_seen >= now - timedelta(seconds=STALE_SECONDS)
@@ -290,6 +315,7 @@ def scene_visits(
             "entered_at": _iso(row.entered_at),
             "left_at": _iso(row.left_at),
             "present": present,
+            "alert_id": alerts.get(row.id),
             "duration_seconds": max(0, int((end - row.entered_at).total_seconds())),
             "ppe": _ppe(row.ppe),
         })

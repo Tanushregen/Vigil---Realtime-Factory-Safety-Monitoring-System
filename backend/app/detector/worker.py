@@ -359,6 +359,7 @@ class CameraWorker(threading.Thread):
             extra={"source": "scene", "scene_event": e["kind"], "zone": e["zone_name"],
                    "zone_id": e["zone_id"], "track_id": e["track_id"]},
             occurred_ts=frame_ts,
+            scene_ref={"zone_id": e["zone_id"], "visit_id": e.get("visit_id")},
             annotation={"track_id": e["track_id"], "label": e["label"], "box": None,
                         "also": [], "at": frame_ts, "zone": e["polygon"],
                         "zone_name": e["zone_name"], "style": "scene"},

@@ -211,6 +211,8 @@ def _add_violation_columns():
     _add_columns("violations", {"review": "VARCHAR", "reviewed_at": "DATETIME",
                                 "latency_ms": "INTEGER"})
     _add_columns("safety_prompts", {"compiled": "TEXT"})
+    _add_columns("camera_zones", {"alert_on_entry": "BOOLEAN NOT NULL DEFAULT 1"})
+    _add_columns("violations", {"zone_id": "INTEGER", "visit_id": "INTEGER"})
     _add_columns("alert_deliveries", {"message_ids": "TEXT", "receipts": "TEXT"})
     _add_columns("scan_stats", {"checked": "INTEGER NOT NULL DEFAULT 0",
                                 "rejected": "INTEGER NOT NULL DEFAULT 0"})
@@ -249,6 +251,9 @@ class Violation(Base):
     reviewed_at = Column(DateTime, nullable=True)
     # milliseconds from the frame the model judged to the alert being raised
     latency_ms = Column(Integer, nullable=True)
+    # Scene alerts: the zone and the zone visit the clip belongs to
+    zone_id = Column(Integer, nullable=True, index=True)
+    visit_id = Column(Integer, nullable=True, index=True)
 
 
 # Metrics: hourly counters of the model scans of one camera (UTC hour start)
@@ -339,6 +344,8 @@ class CameraZone(Base):
     name = Column(String, nullable=False)
     kind = Column(String, nullable=False, default="area")     # area | gate | exit
     polygon = Column(Text, nullable=False)
+    # A person staying in an "area" zone raises a scene alert with a clip
+    alert_on_entry = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

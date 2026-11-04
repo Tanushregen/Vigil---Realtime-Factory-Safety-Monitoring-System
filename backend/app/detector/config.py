@@ -92,6 +92,11 @@ SCENE_ALERT_CONFIRM = _int("SCENE_ALERT_CONFIRM", 2)       # readings in a row b
 SCENE_ALERT_GAP = _float("SCENE_ALERT_GAP", 120.0)         # seconds between alerts for one gate
 SCENE_STAY_ALERT_MIN = _float("SCENE_STAY_ALERT_MIN", 0.0) # minutes in a zone before an alert (0 = off)
 
+# A person standing in a marked work area raises a "zone entry" scene alert with a clip
+SCENE_ZONE_ALERTS = _str("SCENE_ZONE_ALERTS", "1") in ("1", "true", "yes")
+SCENE_ENTRY_SECONDS = _float("SCENE_ENTRY_SECONDS", 3.0)    # seconds in the zone before the alert
+SCENE_ENTRY_GAP = _float("SCENE_ENTRY_GAP", 60.0)           # seconds between entry alerts for one zone
+
 # --- Factory local time (rule schedules such as "10pm to 5am" use it) ---------
 LOCAL_TZ = _str("VIGIL_LOCAL_TZ", "Asia/Kolkata")
 

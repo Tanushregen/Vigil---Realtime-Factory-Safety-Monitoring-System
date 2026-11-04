@@ -20,7 +20,7 @@ function ZoneEditor({ cameraId }) {
   const [points, setPoints] = useState([])
   const [drawing, setDrawing] = useState(false)
   const [naming, setNaming] = useState(false)
-  const [form, setForm] = useState({ name: '', kind: 'area' })
+  const [form, setForm] = useState({ name: '', kind: 'area', alert: true })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [snapshot, setSnapshot] = useState(() => Date.now())
@@ -67,7 +67,7 @@ function ZoneEditor({ cameraId }) {
     setDrawing(false)
     setNaming(false)
     setPoints([])
-    setForm({ name: '', kind: 'area' })
+    setForm({ name: '', kind: 'area', alert: true })
   }
 
   function finishDrawing() {
@@ -89,7 +89,12 @@ function ZoneEditor({ cameraId }) {
       const response = await fetch(`/api/cameras/${cameraId}/zones`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, kind: form.kind, polygon: points }),
+        body: JSON.stringify({
+          name: form.name,
+          kind: form.kind,
+          polygon: points,
+          alert_on_entry: form.alert,
+        }),
       })
       const data = await response.json().catch(() => ({}))
 
@@ -106,6 +111,21 @@ function ZoneEditor({ cameraId }) {
       setError(err.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Switch the "alert when a person enters" behaviour of an area on or off
+  async function toggleEntryAlerts(zone) {
+    try {
+      const response = await fetch(`/api/zones/${zone.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alert_on_entry: !zone.alert_on_entry }),
+      })
+      if (!response.ok) throw new Error('Could not change the zone')
+      await loadZones()
+    } catch (err) {
+      setError(err.message)
     }
   }
 
@@ -279,6 +299,17 @@ function ZoneEditor({ cameraId }) {
             </select>
           </label>
 
+          {form.kind === 'area' && (
+            <label className="ze-check">
+              <input
+                type="checkbox"
+                checked={form.alert}
+                onChange={event => setForm({ ...form, alert: event.target.checked })}
+              />
+              Raise an alert with a clip when a person enters this area
+            </label>
+          )}
+
           <div className="ze-form-actions">
             <button type="button" className="ze-secondary" onClick={cancel}>
               Cancel
@@ -306,6 +337,16 @@ function ZoneEditor({ cameraId }) {
                   {KINDS.find(kind => kind.value === zone.kind)?.label || zone.kind}
                 </span>
                 <strong>{zone.name}</strong>
+                {zone.kind === 'area' && (
+                  <button
+                    type="button"
+                    className={`ze-alert-toggle ${zone.alert_on_entry ? 'on' : ''}`}
+                    onClick={() => toggleEntryAlerts(zone)}
+                    title="Raise an alert with a clip when a person enters this area"
+                  >
+                    {zone.alert_on_entry ? 'Entry alerts on' : 'Entry alerts off'}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="ze-delete"

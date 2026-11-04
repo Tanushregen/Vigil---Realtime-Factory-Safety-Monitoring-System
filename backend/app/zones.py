@@ -21,6 +21,7 @@ class Zone:
     name: str
     kind: str
     polygon: tuple[tuple[float, float], ...]
+    alert_on_entry: bool = True
 
     def contains(self, x: float, y: float) -> bool:
         """Ray casting: is the point (x, y) inside the polygon?"""
@@ -71,7 +72,8 @@ def load_zones(camera_id: int) -> list[Zone]:
             logger.warning("zone %s of camera %s has an invalid polygon, skipped",
                            row.id, camera_id)
             continue
-        zones.append(Zone(row.id, row.name, row.kind or "area", polygon))
+        zones.append(Zone(row.id, row.name, row.kind or "area", polygon,
+                          True if row.alert_on_entry is None else bool(row.alert_on_entry)))
     return zones
 
 

@@ -21,6 +21,12 @@ TEMPLATES = {
 # CP Plus uses the Dahua URL format
 TEMPLATES["cpplus"] = TEMPLATES["dahua"]
 
+# Stream sources a camera may use. go2rtc restreams all of these as RTSP.
+# file:, exec: and ffmpeg: sources are deliberately excluded: they can read
+# local files or run commands on the server.
+RTSP_SCHEMES = ("rtsp", "rtsps")
+SUPPORTED_SCHEMES = RTSP_SCHEMES + ("rtmp", "rtmps", "http", "https", "srt")
+
 
 def build_urls(brand, ip, port, user, pwd, ch):
     """
@@ -54,8 +60,8 @@ def build_urls(brand, ip, port, user, pwd, ch):
 
 def validate_rtsp_stream(rtsp_url: str) -> dict:
     """
-    Validate an RTSP stream using FFprobe.
-    Uses TCP transport and a 10-second RTSP timeout.
+    Validate a camera stream (RTSP, RTMP, HTTP/MJPEG/HLS, SRT) using FFprobe.
+    RTSP uses TCP transport; every protocol gets a 10-second timeout.
     """
 
     if not shutil.which("ffprobe"):
@@ -64,11 +70,20 @@ def validate_rtsp_stream(rtsp_url: str) -> dict:
             "error": "FFprobe is not installed"
         }
 
+    scheme = rtsp_url.split(":", 1)[0].lower()
+
+    if scheme in RTSP_SCHEMES:
+        network_options = [
+            "-rtsp_transport", "tcp",
+            "-timeout", "10000000"
+        ]
+    else:
+        network_options = ["-rw_timeout", "10000000"]
+
     command = [
         "ffprobe",
         "-v", "error",
-        "-rtsp_transport", "tcp",
-        "-timeout", "10000000",
+        *network_options,
         "-select_streams", "v:0",
         "-show_entries",
         "stream=codec_name,width,height,avg_frame_rate",
@@ -91,8 +106,8 @@ def validate_rtsp_stream(rtsp_url: str) -> dict:
 
             elif "connection refused" in error_message:
                 error = (
-                    "DVR not reachable - check IP, port "
-                    "and that RTSP is enabled"
+                    "Camera not reachable - check IP, port "
+                    "and that the stream is enabled"
                 )
 
             elif (
@@ -100,8 +115,8 @@ def validate_rtsp_stream(rtsp_url: str) -> dict:
                 or "timeout" in error_message
             ):
                 error = (
-                    "DVR not reachable - check IP, port "
-                    "and that RTSP is enabled"
+                    "Camera not reachable - check IP, port "
+                    "and that the stream is enabled"
                 )
 
             elif (
@@ -157,12 +172,12 @@ def validate_rtsp_stream(rtsp_url: str) -> dict:
     except subprocess.TimeoutExpired:
         return {
             "valid": False,
-            "error": "RTSP validation timed out"
+            "error": "Stream validation timed out"
         }
 
     except Exception:
         return {
             "valid": False,
-            "error": "Unable to validate RTSP stream"
+            "error": "Unable to validate the stream"
         }
         

@@ -261,7 +261,7 @@ function AddDvr() {
               name="rtsp_url"
               value={manualData.rtsp_url}
               onChange={handleManualChange}
-              placeholder="rtsp://username:password@ip:554/path"
+              placeholder="rtsp://user:pass@ip:554/path  (also rtsps, rtmp, http MJPEG/HLS, srt)"
               autoComplete="off"
               required
             />

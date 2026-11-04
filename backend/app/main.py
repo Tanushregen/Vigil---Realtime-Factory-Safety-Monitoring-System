@@ -354,13 +354,6 @@ def add_manual_camera(
 ):
     rtsp_url = camera_data.rtsp_url.strip()
 
-    # Validate RTSP URL format
-    if not rtsp_url.lower().startswith("rtsp://"):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid RTSP URL. URL must start with rtsp://"
-        )
-
     # Validate the stream using FFprobe
     result = validate_rtsp_stream(rtsp_url)
 

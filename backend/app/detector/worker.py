@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 from app import frames
-from app.detector import config, judge, meta_client
+from app.detector import config, judge, meta_client, trail
 from app.detector.confirm import Confirmer
 from app.detector.rules import Rule, resolve_rules
 from app.detector.tracking import CameraTracker, Person
@@ -95,6 +95,8 @@ class CameraWorker(threading.Thread):
                                 self.camera_id, frame.shape[1], frame.shape[0])
 
                 people = self._tracker.update(frame)
+                trail.record(self.camera_id, last_ts, people,
+                             frame.shape[1], frame.shape[0])
                 if not self._pose_ready:
                     self._pose_ready = True
                     logger.info("[detector] cam%s: pose model loaded, tracking people",
@@ -104,10 +106,11 @@ class CameraWorker(threading.Thread):
                 if config.FALL_DETECTION:
                     self._check_falls(people)
                 if rules:
-                    self._maybe_scan(frame, people, rules)
+                    self._maybe_scan(frame, people, rules, last_ts)
             except Exception:
                 logger.exception("[detector] cam%s: loop error", self.camera_id)
                 self.stop_event.wait(2.0)
+        trail.forget(self.camera_id)
         logger.info("[detector] cam%s: stopped", self.camera_id)
 
     def _heartbeat(self, rules: list[Rule]):
@@ -150,7 +153,8 @@ class CameraWorker(threading.Thread):
         return self._rules
 
     # ------------------------------------------------------------------ gate
-    def _maybe_scan(self, frame: np.ndarray, people: list[Person], rules: list[Rule]):
+    def _maybe_scan(self, frame: np.ndarray, people: list[Person], rules: list[Rule],
+                    frame_ts: float):
         now = time.time()
         with self._lock:
             if self._inflight:
@@ -184,7 +188,7 @@ class CameraWorker(threading.Thread):
             self._last_scan_started = now
             self._next_scan_at = now + (config.SCAN_INTERVAL if people else config.IDLE_INTERVAL)
 
-        _scan_pool.submit(self._scan, frame, _snapshot(people), list(rules))
+        _scan_pool.submit(self._scan, frame, _snapshot(people), list(rules), frame_ts)
 
     def _scene_changed(self, frame: np.ndarray) -> bool:
         gray = cv2.cvtColor(cv2.resize(frame, (96, 54)), cv2.COLOR_BGR2GRAY)
@@ -194,7 +198,8 @@ class CameraWorker(threading.Thread):
         return float(np.mean(cv2.absdiff(gray, previous))) >= config.IDLE_MOTION_THRESHOLD
 
     # ------------------------------------------------------------------ slow path
-    def _scan(self, frame: np.ndarray, people: list[Person], rules: list[Rule]):
+    def _scan(self, frame: np.ndarray, people: list[Person], rules: list[Rule],
+              frame_ts: float):
         started = time.time()
         try:
             result = judge.judge(frame, people, rules)
@@ -210,7 +215,7 @@ class CameraWorker(threading.Thread):
             confirmed = self._confirmer.update(rules, [p.track_id for p in people],
                                                result.hits)
             for c in confirmed:
-                self._raise_violation(c, frame, people)
+                self._raise_violation(c, frame, people, frame_ts)
 
             now = time.time()
             self.status.update(
@@ -237,7 +242,8 @@ class CameraWorker(threading.Thread):
             self._next_scan_at = time.time() + min(30.0, config.SCAN_INTERVAL * (1 + failures))
             self._inflight = False
 
-    def _raise_violation(self, c, frame: np.ndarray, people: list[Person]):
+    def _raise_violation(self, c, frame: np.ndarray, people: list[Person],
+                         frame_ts: float):
         from app.violations import record_violation_async    # avoid import cycles
 
         posture = next((p.posture for p in people if p.track_id == c.target_id), None)
@@ -253,6 +259,13 @@ class CameraWorker(threading.Thread):
             extra={"source": "meta_vlm", "model": config.META_MODEL,
                    "rule_scope": c.rule.scope, "rule_text": c.rule.text,
                    "track_id": c.target_id, "posture": posture, "box2d": c.hit.box},
+            # the clip is centred on the frame the model judged, not on the
+            # moment its (slow) answer came back
+            occurred_ts=frame_ts,
+            annotation={"track_id": c.target_id,
+                        "label": f"{c.rule.title} {c.hit.confidence}%",
+                        "box": c.hit.box if c.target_id is None else None,
+                        "at": frame_ts},
         )
 
     # ------------------------------------------------------------------ local fall alert
@@ -269,4 +282,6 @@ class CameraWorker(threading.Thread):
                 record_violation_async(
                     self.camera_id, "fall_detected", confidence=90.0,
                     description="Person on the ground (pose keypoints)",
-                    extra={"source": "pose", "track_id": p.track_id})
+                    extra={"source": "pose", "track_id": p.track_id},
+                    annotation={"track_id": p.track_id, "label": "Fall detected",
+                                "box": None, "at": now})

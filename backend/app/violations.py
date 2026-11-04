@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app import clips, recorder, storage
+from app import annotate, clips, recorder, storage
 from app.db import SessionLocal, Camera, Violation
 
 logger = logging.getLogger(__name__)
@@ -32,14 +32,21 @@ def record_violation(
     pre_seconds: int | None = None,
     post_seconds: int | None = None,
     violation_id: str | None = None,
+    occurred_ts: float | None = None,
+    annotation: dict | None = None,
 ) -> dict:
-    """Cut a clip around "now", upload it with its metadata, save a DB row.
+    """Cut a clip around the violation, upload it with its metadata, save a DB row.
 
     pre_seconds / post_seconds: seconds of video to keep before / after the
     violation (defaults come from CLIP_PRE_SECONDS / CLIP_POST_SECONDS).
+    occurred_ts: when the violation was seen (the capture time of the frame the
+    model judged); defaults to now. A slow model answer arrives well after the
+    moment itself, so the detector passes the frame's own time.
+    annotation: what to highlight with a red box on the clip,
+    {"track_id", "label", "box", "at"}; every tracked person is boxed as well.
     Blocks for about post_seconds + 10 s.
     """
-    occurred_ts = time.time()
+    occurred_ts = occurred_ts if occurred_ts is not None else time.time()
     occurred = datetime.fromtimestamp(occurred_ts).astimezone()
     violation_id = violation_id or uuid.uuid4().hex[:8]
 
@@ -63,11 +70,12 @@ def record_violation(
     seg_start = recorder.get_active_segment_start(camera_id)
     if seg_start:
         offset = occurred.replace(tzinfo=None) - seg_start
-        recording_ref = {
-            "recording_key": storage.recording_key(camera_id, seg_start),
-            "segment_start": seg_start.isoformat(),
-            "offset_seconds": round(offset.total_seconds(), 1),
-        }
+        if offset.total_seconds() >= 0:       # not if the chunk rolled over since
+            recording_ref = {
+                "recording_key": storage.recording_key(camera_id, seg_start),
+                "segment_start": seg_start.isoformat(),
+                "offset_seconds": round(offset.total_seconds(), 1),
+            }
 
     # Explicit arguments win, then the camera's own setting, then the default.
     pre = pre_seconds if pre_seconds is not None else cam_pre
@@ -84,6 +92,25 @@ def record_violation(
         clip_path.unlink(missing_ok=True)
         raise RuntimeError(
             f"Camera {camera_id} was deleted while its clip was being made")
+
+    # Draw the detector's boxes on the clip (falls back to the plain clip)
+    annotated = None
+    if annotate.ENABLED:
+        annotated_path = clip_path.with_name(clip_path.stem + "_boxes.mp4")
+        try:
+            from app.detector import trail
+
+            seen = trail.window(camera_id, clip["start_ts"] - 1, clip["end_ts"] + 1)
+            if seen or (annotation and annotation.get("box")):
+                annotated = annotate.annotate_clip(
+                    clip_path, annotated_path, clip.get("timeline"), seen, annotation)
+                clip_path.unlink(missing_ok=True)       # the boxed clip replaces it
+                clip_path = annotated_path
+        except Exception:
+            annotated = None
+            logger.exception("[violation] %s: could not draw boxes on the clip, "
+                             "keeping the plain clip", violation_id)
+            annotated_path.unlink(missing_ok=True)
 
     try:
         clip_key = storage.violation_clip_key(
@@ -117,6 +144,11 @@ def record_violation(
                 "content_type": "video/mp4",
             },
             "recording": recording_ref,
+            "annotation": (
+                {"boxes": True, "source": "yolo11-pose + bytetrack",
+                 "frames_with_boxes": annotated["frames_with_boxes"]}
+                if annotated else None
+            ),
             "metadata_key": metadata_key,
             "extra": extra or {},
         }

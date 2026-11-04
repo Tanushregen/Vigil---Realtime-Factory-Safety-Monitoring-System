@@ -59,6 +59,8 @@ def stop_detector(camera_id: int) -> None:
         worker = _workers.pop(camera_id, None)
     if worker is not None:
         worker.stop_event.set()
+    from app.detector import trail
+    trail.forget(camera_id)
 
 
 def stop_all_detectors() -> None:

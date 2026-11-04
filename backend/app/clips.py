@@ -303,6 +303,13 @@ def cut_clip(camera_id: int, occurred_ts: float,
         err = result.stderr.decode(errors="ignore")[-500:]
         raise RuntimeError(f"ffmpeg could not build the clip: {err}")
 
+    # (start time, length) of every segment, so frames in the clip can be mapped
+    # back to wall-clock time (used to place the detector's boxes on the video)
+    timeline = []
+    for mtime, seg_file in segments:
+        length = _probe_duration(seg_file) or float(BUFFER_SEG)
+        timeline.append((mtime - length, length))
+
     first_m, last_m = segments[0][0], segments[-1][0]
     duration = _probe_duration(out_path) or round(
         last_m - first_m + BUFFER_SEG, 2
@@ -318,6 +325,7 @@ def cut_clip(camera_id: int, occurred_ts: float,
         "end_ts": last_m,
         "duration_seconds": duration,
         "segments": len(segments),
+        "timeline": timeline,
         "pre_seconds": pre,
         "post_seconds": post,
     }

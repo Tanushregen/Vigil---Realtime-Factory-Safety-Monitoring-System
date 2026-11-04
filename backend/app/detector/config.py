@@ -80,6 +80,9 @@ VERIFY_PRE = _int("DETECTOR_VERIFY_PRE", 2)              # seconds of clip befor
 VERIFY_POST = _int("DETECTOR_VERIFY_POST", 2)            # ... and after it
 VERIFY_FAIL_OPEN = _str("DETECTOR_VERIFY_FAIL_OPEN", "1") in ("1", "true", "yes")
 
+# --- Factory local time (rule schedules such as "10pm to 5am" use it) ---------
+LOCAL_TZ = _str("VIGIL_LOCAL_TZ", "Asia/Kolkata")
+
 # --- Cost of the cloud model (USD per million tokens; 0 = not set, no cost shown)
 META_PRICE_IN = _float("META_PRICE_IN_PER_M", 0.0)
 META_PRICE_OUT = _float("META_PRICE_OUT_PER_M", 0.0)

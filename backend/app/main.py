@@ -35,6 +35,7 @@ from app.auth.dependencies import enforce_authentication
 from app.auth.router import router as auth_router
 from app.metrics_api import router as metrics_router
 from app.notify_api import router as notify_router
+from app.rules_api import router as rules_router, compiled_view
 from app import notify
 from app.violations_api import router as violations_router
 from app.scene_api import router as scene_router
@@ -52,6 +53,7 @@ app.include_router(violations_router)
 app.include_router(scene_router)
 app.include_router(metrics_router)
 app.include_router(notify_router)
+app.include_router(rules_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=auth_config.ALLOWED_ORIGINS,
@@ -992,7 +994,8 @@ def format_prompt(prompt):
         "text": prompt.text,
         "type": prompt.prompt_type,
         "target": target,
-        "enabled": prompt.enabled
+        "enabled": prompt.enabled,
+        "compiled": compiled_view(prompt),
     }
 
 
@@ -1044,8 +1047,11 @@ def update_prompt(
         data.type, data.target, db
     )
 
+    new_text = data.text.strip()
+    if new_text != (prompt.text or "").strip():
+        prompt.compiled = None          # the compiled form no longer describes the rule
     prompt.title = data.title.strip()
-    prompt.text = data.text.strip()
+    prompt.text = new_text
     prompt.prompt_type = data.type
     prompt.group_id = group_id
     prompt.camera_id = camera_id

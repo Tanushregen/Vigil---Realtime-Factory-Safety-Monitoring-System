@@ -22,7 +22,8 @@ from app.detector import config, judge, meta_client, trail, verify
 from app.detector.confirm import Confirmer
 from app.detector.rules import Rule, resolve_rules
 from app.detector.scene import SceneTracker
-from app.zones import load_zones
+from app.rule_compiler import normalize_name
+from app.zones import feet_point, load_zones
 from app.detector.tracking import CameraTracker, Person
 
 logger = logging.getLogger(__name__)
@@ -160,8 +161,10 @@ class CameraWorker(threading.Thread):
             except Exception:
                 logger.exception("[detector] cam%s: could not read rules", self.camera_id)
             self._rules_at = now
-            self.status["rules"] = len(self._rules)
-        return self._rules
+        # a rule with a schedule only applies inside its time window
+        active = [r for r in self._rules if r.in_schedule()]
+        self.status["rules"] = len(active)
+        return active
 
     def _current_zones(self) -> list:
         now = time.time()
@@ -241,15 +244,15 @@ class CameraWorker(threading.Thread):
         metrics.record_scan(self.camera_id, True, time.time() - started, result.usage)
 
         try:
-            confirmed = self._confirmer.update(rules, [p.track_id for p in people],
-                                               result.hits)
+            hits = self._zone_filter(result.hits, rules, people, zones, frame.shape)
+            confirmed = self._confirmer.update(rules, [p.track_id for p in people], hits)
             raised_rules = set()
             for c in confirmed:
                 if c.rule.id in raised_rules and c.target_id is not None:
                     continue    # already tagged in this rule's alert for this scan
                 raised_rules.add(c.rule.id)
                 # tag everyone the model saw breaking the same rule in this scan
-                others = [h for h in result.hits
+                others = [h for h in hits
                           if h.rule_id == c.rule.id and h.target_id is not None
                           and h.target_id != c.target_id
                           and h.confidence >= config.MIN_CONFIDENCE]
@@ -268,16 +271,37 @@ class CameraWorker(threading.Thread):
             logger.info("[detector] cam%s: scan ok in %.1fs - %d people, %d rules, "
                         "%d hits, %d confirmed; judged %s; hits %s",
                         self.camera_id, now - started, len(people), len(rules),
-                        len(result.hits), len(confirmed),
+                        len(hits), len(confirmed),
                         ",".join(f"#{t}" for t in result.targets) or "none",
                         ", ".join(f"#{h.target_id}:R{h.rule_id}:{h.confidence}%"
-                                  for h in result.hits) or "none")
+                                  for h in hits) or "none")
             if self._confirmer.pending():
                 with self._lock:
                     self._next_scan_at = min(self._next_scan_at, now + config.CONFIRM_RESCAN)
         finally:
             with self._lock:
                 self._inflight = False
+
+    @staticmethod
+    def _zone_filter(hits, rules, people, zones, shape):
+        """Drop a person's hit for a rule that names a zone when the person is not
+        standing in it. Scene-level hits and rules whose zone is not drawn on this
+        camera are left alone."""
+        wanted = {r.id: normalize_name(r.zone) for r in rules if r.zone}
+        if not wanted:
+            return hits
+        by_name = {normalize_name(z.name): z for z in zones}
+        by_track = {p.track_id: p for p in people}
+        height, width = shape[:2]
+        kept = []
+        for h in hits:
+            zone = by_name.get(wanted.get(h.rule_id, ""))
+            person = by_track.get(h.target_id) if h.target_id is not None else None
+            if zone is not None and person is not None:
+                if not zone.contains(*feet_point(person.box, width, height)):
+                    continue
+            kept.append(h)
+        return kept
 
     def _scan_failed(self, error: Exception):
         failures = self.status["consecutive_failures"] + 1

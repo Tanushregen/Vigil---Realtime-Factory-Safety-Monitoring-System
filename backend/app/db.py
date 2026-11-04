@@ -177,6 +177,8 @@ class SafetyPrompt(Base):
 
     enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Compiled form of the rule text (JSON, see app/rule_compiler.py); only used once confirmed
+    compiled = Column(Text, nullable=True)
 
     group = relationship("CameraGroup", back_populates="prompts")
     camera = relationship("Camera", back_populates="safety_prompts")
@@ -208,6 +210,7 @@ def _add_columns(table: str, wanted: dict):
 def _add_violation_columns():
     _add_columns("violations", {"review": "VARCHAR", "reviewed_at": "DATETIME",
                                 "latency_ms": "INTEGER"})
+    _add_columns("safety_prompts", {"compiled": "TEXT"})
     _add_columns("scan_stats", {"checked": "INTEGER NOT NULL DEFAULT 0",
                                 "rejected": "INTEGER NOT NULL DEFAULT 0"})
 

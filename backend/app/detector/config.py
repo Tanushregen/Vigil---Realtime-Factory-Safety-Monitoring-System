@@ -32,6 +32,12 @@ META_API_URL = (_str("META_API_URL") or _str("META_LLAMA_API_URL")
                 or "https://api.llama.com/compat/v1").rstrip("/")
 META_MODEL = (_str("META_MODEL") or _str("META_LLAMA_MODEL")
               or "Llama-4-Maverick-17B-128E-Instruct-FP8")
+# Rule compiling can use its own key (and URL / model) so it never shares the live
+# scans' rate limit. Anything left empty falls back to the META_* value.
+COMPILER_API_KEY = _str("COMPILER_API_KEY")
+COMPILER_API_URL = _str("COMPILER_API_URL")
+COMPILER_MODEL = _str("COMPILER_MODEL")
+
 META_TIMEOUT = _float("META_TIMEOUT_SECONDS", 25.0)
 META_RETRIES = _int("META_RETRIES", 2)
 # Max Meta API calls running at the same time across ALL cameras.

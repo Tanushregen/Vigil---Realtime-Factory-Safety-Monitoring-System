@@ -126,6 +126,19 @@ def record_violation(
                                       "violation-id": violation_id})
         storage.upload_json(metadata, metadata_key)
 
+        if not clips.camera_exists(camera_id):
+            # The camera was deleted while the clip was uploading: drop what
+            # was just stored instead of leaving an alert for a missing camera.
+            for key in (clip_key, metadata_key):
+                try:
+                    storage.delete_object_everywhere(key)
+                except Exception:
+                    logger.warning("[violation] %s: could not remove %s",
+                                   violation_id, key, exc_info=True)
+            clip_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Camera {camera_id} was deleted while its clip was uploading")
+
         db = SessionLocal()
         try:
             row = Violation(

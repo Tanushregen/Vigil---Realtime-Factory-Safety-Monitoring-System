@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import PageHeader from "../components/PageHeader";
+import DeleteGroupDialog from "../components/DeleteGroupDialog";
 import "./SafetyRules.css";
 
 // Same-origin through the Vite proxy so the session cookie is sent
@@ -36,6 +37,10 @@ export default function SafetyRules({ onOpenAlerts }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const [groupToDelete, setGroupToDelete] = useState(null);
+  const [deletingGroup, setDeletingGroup] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     loadData();
@@ -153,15 +158,37 @@ export default function SafetyRules({ onOpenAlerts }) {
     }
   }
 
-  async function deleteGroup(id) {
-    if (!window.confirm("Delete this group?")) return;
+  function deleteGroup(id) {
+    const group = groups.find((item) => item.id === id);
+    if (!group) return;
+
+    setDeleteError("");
+    setGroupToDelete(group);
+  }
+
+  async function confirmDeleteGroup(deleteCameras) {
+    const group = groupToDelete;
+    if (!group) return;
+
+    setDeletingGroup(true);
+    setDeleteError("");
 
     try {
-      await request(`/groups/${id}`, { method: "DELETE" });
+      await request(`/groups/${group.id}?delete_cameras=${deleteCameras}`, {
+        method: "DELETE",
+      });
+
+      if (editingGroupId === group.id) resetGroupForm();
+
+      setGroupToDelete(null);
       await loadData();
-      setSuccess("Group deleted.");
+      setSuccess(
+        deleteCameras ? "Group and its cameras deleted." : "Group deleted."
+      );
     } catch (err) {
-      setError(err.message);
+      setDeleteError(err.message);
+    } finally {
+      setDeletingGroup(false);
     }
   }
 
@@ -927,6 +954,17 @@ export default function SafetyRules({ onOpenAlerts }) {
           ))
         )}
       </div>
+
+      {groupToDelete && (
+        <DeleteGroupDialog
+          groupName={groupToDelete.name}
+          cameraNames={groupToDelete.cameraIds.map((id) => cameraName(id))}
+          busy={deletingGroup}
+          error={deleteError}
+          onCancel={() => setGroupToDelete(null)}
+          onConfirm={confirmDeleteGroup}
+        />
+      )}
     </div>
   );
 }

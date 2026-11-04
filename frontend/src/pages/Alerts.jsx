@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bell } from 'lucide-react'
+import { Bell, Building2, Folder, LayoutGrid, List } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import './Alerts.css'
 
@@ -36,6 +36,9 @@ function severity(confidence) {
 
 function Alerts() {
   const [cameras, setCameras] = useState([])
+  const [groups, setGroups] = useState([])
+  const [groupId, setGroupId] = useState('')
+  const [view, setView] = useState('list')
   const [cameraId, setCameraId] = useState('')
   const [violationType, setViolationType] = useState('')
   const [hours, setHours] = useState(24)
@@ -51,12 +54,14 @@ function Alerts() {
   const [clipUrl, setClipUrl] = useState('')
   const [clipError, setClipError] = useState('')
 
-  const filters = useRef({ cameraId, violationType, hours })
+  const filters = useRef({ groupId, cameraId, violationType, hours })
 
   const buildUrl = useCallback((offset, limit) => {
     const params = new URLSearchParams({ limit, offset })
     const current = filters.current
 
+    if (current.groupId === 'ungrouped') params.set('ungrouped', 'true')
+    else if (current.groupId) params.set('group_id', current.groupId)
     if (current.cameraId) params.set('camera_id', current.cameraId)
     if (current.violationType) {
       params.set('violation_type', current.violationType)
@@ -91,11 +96,11 @@ function Alerts() {
 
   // Filters changed: start again from the newest page
   useEffect(() => {
-    filters.current = { cameraId, violationType, hours }
+    filters.current = { groupId, cameraId, violationType, hours }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     load()
-  }, [cameraId, violationType, hours, load])
+  }, [groupId, cameraId, violationType, hours, load])
 
   // Pick up new violations without a manual refresh
   const countRef = useRef(0)
@@ -114,6 +119,11 @@ function Alerts() {
     fetch('/api/cameras')
       .then(response => (response.ok ? response.json() : []))
       .then(setCameras)
+      .catch(() => {})
+
+    fetch('/api/groups')
+      .then(response => (response.ok ? response.json() : []))
+      .then(setGroups)
       .catch(() => {})
   }, [])
 
@@ -160,6 +170,91 @@ function Alerts() {
     setClipUrl('')
   }
 
+  // The camera list follows the chosen group
+  const groupedCameraIds = new Set(groups.flatMap(group => group.cameraIds))
+  const chosenGroup = groups.find(group => group.id === groupId)
+
+  const visibleCameras =
+    groupId === 'ungrouped'
+      ? cameras.filter(camera => !groupedCameraIds.has(camera.id))
+      : chosenGroup
+        ? cameras.filter(camera => chosenGroup.cameraIds.includes(camera.id))
+        : cameras
+
+  // "By group" view: one section per group, alerts of ungrouped cameras last
+  const sections = []
+
+  if (view === 'grouped') {
+    const byGroup = new Map()
+    const ungroupedItems = []
+
+    for (const item of items) {
+      if (item.groups.length === 0) {
+        ungroupedItems.push(item)
+        continue
+      }
+
+      for (const group of item.groups) {
+        if (!byGroup.has(group.id)) {
+          byGroup.set(group.id, { id: group.id, name: group.name, items: [] })
+        }
+
+        byGroup.get(group.id).items.push(item)
+      }
+    }
+
+    sections.push(
+      ...[...byGroup.values()].sort((a, b) => a.name.localeCompare(b.name))
+    )
+
+    if (ungroupedItems.length > 0) {
+      sections.push({ id: 'ungrouped', name: 'No group', items: ungroupedItems })
+    }
+  }
+
+  function renderCard(item, key) {
+    return (
+      <button
+        key={key}
+        className="alert-card"
+        onClick={() => openClip(item)}
+      >
+        <span className={`alert-severity ${severity(item.confidence)}`}>
+          {item.confidence == null ? 'n/a' : `${Math.round(item.confidence)}%`}
+        </span>
+
+        <h3>{typeLabel(item.violation_type)}</h3>
+        <p className="alert-camera">
+          {item.camera_name || 'Deleted camera'}
+          {item.zone ? ` · ${item.zone}` : ''}
+        </p>
+
+        <p className="alert-group">
+          <Building2 size={15} />
+          {item.groups.length > 0
+            ? item.groups.map(group => group.name).join(', ')
+            : 'No group'}
+        </p>
+
+        {item.description && (
+          <p className="alert-description">{item.description}</p>
+        )}
+
+        {item.clip_dir && (
+          <p className="alert-path" title={item.clip_dir}>
+            <Folder size={15} />
+            <span>{item.clip_dir}</span>
+          </p>
+        )}
+
+        <span className="alert-time">
+          {timeAgo(item.occurred_at)} ·{' '}
+          {new Date(item.occurred_at).toLocaleString()}
+        </span>
+      </button>
+    )
+  }
+
   return (
     <div className="ov-page alerts-page">
       <PageHeader
@@ -172,13 +267,32 @@ function Alerts() {
 
       <section className="alerts-filters">
         <label>
+          Group
+          <select
+            value={groupId}
+            onChange={event => {
+              setGroupId(event.target.value)
+              setCameraId('')
+            }}
+          >
+            <option value="">All groups</option>
+            {groups.map(group => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
+            <option value="ungrouped">No group</option>
+          </select>
+        </label>
+
+        <label>
           Camera
           <select
             value={cameraId}
             onChange={event => setCameraId(event.target.value)}
           >
             <option value="">All cameras</option>
-            {cameras.map(camera => (
+            {visibleCameras.map(camera => (
               <option key={camera.id} value={camera.id}>
                 {camera.name}
               </option>
@@ -215,6 +329,24 @@ function Alerts() {
           </select>
         </label>
 
+        <div className="alerts-view" role="group" aria-label="Show alerts as">
+          <button
+            className={view === 'list' ? 'selected' : ''}
+            onClick={() => setView('list')}
+            aria-pressed={view === 'list'}
+          >
+            <List size={16} /> Individual
+          </button>
+
+          <button
+            className={view === 'grouped' ? 'selected' : ''}
+            onClick={() => setView('grouped')}
+            aria-pressed={view === 'grouped'}
+          >
+            <LayoutGrid size={16} /> By group
+          </button>
+        </div>
+
         <span className="alerts-count">
           {total} alert{total === 1 ? '' : 's'}
         </span>
@@ -234,34 +366,30 @@ function Alerts() {
         </div>
       ) : (
         <>
-          <div className="alerts-grid">
-            {items.map(item => (
-              <button
-                key={item.id}
-                className="alert-card"
-                onClick={() => openClip(item)}
-              >
-                <span className={`alert-severity ${severity(item.confidence)}`}>
-                  {item.confidence == null
-                    ? 'n/a'
-                    : `${Math.round(item.confidence)}%`}
-                </span>
+          {view === 'grouped' ? (
+            sections.map(section => (
+              <section className="alerts-section" key={section.id}>
+                <h2 className="alerts-section-title">
+                  <Building2 size={20} />
+                  {section.name}
+                  <span>
+                    {section.items.length} alert
+                    {section.items.length === 1 ? '' : 's'}
+                  </span>
+                </h2>
 
-                <h3>{typeLabel(item.violation_type)}</h3>
-                <p className="alert-camera">
-                  {item.camera_name || 'Deleted camera'}
-                  {item.zone ? ` · ${item.zone}` : ''}
-                </p>
-                {item.description && (
-                  <p className="alert-description">{item.description}</p>
-                )}
-                <span className="alert-time">
-                  {timeAgo(item.occurred_at)} ·{' '}
-                  {new Date(item.occurred_at).toLocaleString()}
-                </span>
-              </button>
-            ))}
-          </div>
+                <div className="alerts-grid">
+                  {section.items.map(item =>
+                    renderCard(item, `${section.id}-${item.id}`)
+                  )}
+                </div>
+              </section>
+            ))
+          ) : (
+            <div className="alerts-grid">
+              {items.map(item => renderCard(item, item.id))}
+            </div>
+          )}
 
           {items.length < total && (
             <button
@@ -285,8 +413,10 @@ function Alerts() {
               <div>
                 <h2>{typeLabel(selected.violation_type)}</h2>
                 <p>
-                  {selected.camera_name || 'Deleted camera'} ·{' '}
-                  {new Date(selected.occurred_at).toLocaleString()}
+                  {selected.camera_name || 'Deleted camera'}
+                  {selected.groups.length > 0 &&
+                    ` · ${selected.groups.map(group => group.name).join(', ')}`}{' '}
+                  · {new Date(selected.occurred_at).toLocaleString()}
                 </p>
               </div>
 
@@ -320,6 +450,12 @@ function Alerts() {
                   : `${Math.round(selected.confidence)}%`}
               </span>
               {selected.description && <span>{selected.description}</span>}
+              {selected.clip_dir && (
+                <span className="alert-path" title={selected.clip_dir}>
+                  <Folder size={15} />
+                  <span>{selected.clip_dir}</span>
+                </span>
+              )}
               {clipUrl && (
                 <a href={clipUrl} download target="_blank" rel="noreferrer">
                   Download clip

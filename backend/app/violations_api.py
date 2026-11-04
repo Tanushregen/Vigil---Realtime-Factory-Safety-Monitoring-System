@@ -4,11 +4,11 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import storage
-from app.db import Camera, Violation, get_db
+from app.db import Camera, CameraGroup, CameraGroupMember, Violation, get_db
 
 logger = logging.getLogger(__name__)
 
@@ -17,15 +17,49 @@ router = APIRouter(prefix="/api/violations", tags=["violations"])
 CLIP_URL_SECONDS = 3600
 
 
-def _serialize(row: Violation, camera: Optional[Camera]) -> dict:
+def _clip_dir(clip_key: str) -> str:
+    """The folder a clip is stored in, without the file name."""
+    return clip_key.rsplit("/", 1)[0] if "/" in clip_key else ""
+
+
+def _groups_by_camera(db: Session, camera_ids: set[int]) -> dict[int, list[dict]]:
+    """Which groups each camera belongs to, as [{id, name}]."""
+    if not camera_ids:
+        return {}
+
+    rows = (
+        db.query(
+            CameraGroupMember.camera_id,
+            CameraGroup.group_code,
+            CameraGroup.name,
+        )
+        .join(CameraGroup, CameraGroup.id == CameraGroupMember.group_id)
+        .filter(CameraGroupMember.camera_id.in_(camera_ids))
+        .order_by(CameraGroup.name)
+        .all()
+    )
+
+    groups: dict[int, list[dict]] = {}
+    for camera_id, group_code, name in rows:
+        groups.setdefault(camera_id, []).append({"id": group_code, "name": name})
+
+    return groups
+
+
+def _serialize(
+    row: Violation, camera: Optional[Camera], groups: list[dict]
+) -> dict:
     return {
         "id": row.id,
         "camera_id": row.camera_id,
         "camera_name": camera.name if camera else None,
         "zone": camera.zone if camera else None,
+        "groups": groups,
         "violation_type": row.violation_type,
         "confidence": row.confidence,
         "description": row.description,
+        # Folder in the bucket that holds the clip (no file name)
+        "clip_dir": _clip_dir(row.clip_key),
         # Stored as the server's local time without an offset; send it with the
         # offset so every browser shows the same moment.
         "occurred_at": row.occurred_at.astimezone().isoformat(),
@@ -35,6 +69,8 @@ def _serialize(row: Violation, camera: Optional[Camera]) -> dict:
 @router.get("")
 def list_violations(
     camera_id: Optional[int] = None,
+    group_id: Optional[str] = None,
+    ungrouped: bool = False,
     violation_type: Optional[str] = None,
     since_hours: Optional[int] = Query(None, ge=1, le=24 * 365),
     limit: int = Query(30, ge=1, le=200),
@@ -45,6 +81,19 @@ def list_violations(
 
     if camera_id is not None:
         query = query.filter(Violation.camera_id == camera_id)
+
+    if group_id:
+        # Alerts of the cameras that are members of this group
+        member_ids = select(CameraGroupMember.camera_id).join(
+            CameraGroup, CameraGroup.id == CameraGroupMember.group_id
+        ).where(CameraGroup.group_code == group_id)
+        query = query.filter(Violation.camera_id.in_(member_ids))
+    elif ungrouped:
+        # Alerts of cameras that are in no group
+        query = query.filter(
+            ~Violation.camera_id.in_(select(CameraGroupMember.camera_id))
+        )
+
     if violation_type:
         query = query.filter(Violation.violation_type == violation_type)
     if since_hours:
@@ -60,12 +109,12 @@ def list_violations(
         .all()
     )
 
+    camera_ids = {row.camera_id for row in rows}
     cameras = {
         camera.id: camera
-        for camera in db.query(Camera)
-        .filter(Camera.id.in_({row.camera_id for row in rows}))
-        .all()
+        for camera in db.query(Camera).filter(Camera.id.in_(camera_ids)).all()
     }
+    groups = _groups_by_camera(db, camera_ids)
 
     types = [
         value
@@ -78,7 +127,10 @@ def list_violations(
     return {
         "total": total,
         "types": types,
-        "items": [_serialize(row, cameras.get(row.camera_id)) for row in rows],
+        "items": [
+            _serialize(row, cameras.get(row.camera_id), groups.get(row.camera_id, []))
+            for row in rows
+        ],
     }
 
 

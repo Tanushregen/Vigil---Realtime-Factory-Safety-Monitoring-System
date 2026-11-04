@@ -9,7 +9,7 @@ from app.health import check_camera_health
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory
+from app.db import init_db, get_db, DVR, Camera, SessionLocal, CameraGroup, CameraGroupMember, SafetyPrompt, CameraHealthHistory, Violation
 from app.crypto import encrypt_password, decrypt_password
 from app.rtsp import build_urls, validate_rtsp_stream
 from app.schemas import CameraGroupUpdate, DVRCreate,CameraUpdate, CameraManualCreate, CameraRTSPUpdate, SafetyPromptCreate, SafetyPromptEnabledUpdate, CameraGroupCreate, CameraGroupUpdate, SafetyPromptCreate, SafetyPromptUpdate, SafetyPromptEnabledUpdate
@@ -691,11 +691,11 @@ def update_camera_rtsp(
             detail="Unable to update camera RTSP URL"
         )
 
-@app.delete("/api/cameras/{camera_id}")
-def delete_camera(camera_id: int, db: Session = Depends(get_db)):
-    camera = db.query(Camera).filter(Camera.id == camera_id).first()
-    if not camera:
-        raise HTTPException(status_code=404, detail="Camera not found")
+def remove_camera(camera: Camera, db: Session) -> dict:
+    """Delete a camera and everything that belongs to it: its processes, its
+    bucket folder (recordings, clips and metadata), its go2rtc stream, its
+    alerts and the database row. Returns what was cleaned up."""
+    camera_id = camera.id
 
     # 1. Resolve the bucket folder BEFORE the DB row is deleted
     folder = storage.camera_folder(camera_id)          # e.g. "tv"
@@ -724,8 +724,13 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)):
     except Exception:
         logger.warning("Could not remove go2rtc stream for camera %s", camera_id)
 
-    # 5. Database row
+    # 5. Alerts (their clips went with the bucket folder) and the database row
     try:
+        alerts_deleted = (
+            db.query(Violation)
+            .filter(Violation.camera_id == camera_id)
+            .delete(synchronize_session=False)
+        )
         db.delete(camera)
         db.commit()
     except Exception:
@@ -734,9 +739,23 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Unable to delete camera")
 
     return {
+        "storage_cleanup": storage_cleanup,
+        "alerts_deleted": alerts_deleted,
+    }
+
+
+@app.delete("/api/cameras/{camera_id}")
+def delete_camera(camera_id: int, db: Session = Depends(get_db)):
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    result = remove_camera(camera, db)
+
+    return {
         "message": "Camera deleted successfully",
         "camera_id": camera_id,
-        "storage_cleanup": storage_cleanup,
+        **result,
     }
 # ---------------- CAMERA GROUP APIs ----------------
 
@@ -837,8 +856,12 @@ def update_group(
 @app.delete("/api/groups/{group_code}")
 def delete_group(
     group_code: str,
+    delete_cameras: bool = False,
     db: Session = Depends(get_db)
 ):
+    """Delete a group. By default its cameras stay (they become ungrouped).
+    With delete_cameras=true every camera in the group is deleted as well,
+    together with its recordings, clips and alerts."""
     group = db.query(CameraGroup).filter(
         CameraGroup.group_code == group_code
     ).first()
@@ -846,10 +869,56 @@ def delete_group(
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
-    db.delete(group)
-    db.commit()
+    deleted_cameras = 0
+    alerts_deleted = 0
+    storage_failed = []
 
-    return {"message": "Group deleted successfully"}
+    if delete_cameras:
+        camera_ids = [member.camera_id for member in group.members]
+        failed = []
+
+        for camera_id in camera_ids:
+            camera = db.query(Camera).filter(Camera.id == camera_id).first()
+            if camera is None:
+                continue
+
+            camera_name = camera.name
+
+            try:
+                result = remove_camera(camera, db)
+            except HTTPException:
+                failed.append(camera_name)
+                continue
+
+            deleted_cameras += 1
+            alerts_deleted += result["alerts_deleted"]
+            if result["storage_cleanup"] != "ok":
+                storage_failed.append(camera_name)
+
+        if failed:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Could not delete: " + ", ".join(failed)
+                    + ". The group was kept."
+                ),
+            )
+
+        # The cameras' membership rows went with them; load the group again
+        group = db.query(CameraGroup).filter(
+            CameraGroup.group_code == group_code
+        ).first()
+
+    if group is not None:
+        db.delete(group)
+        db.commit()
+
+    return {
+        "message": "Group deleted successfully",
+        "deleted_cameras": deleted_cameras,
+        "alerts_deleted": alerts_deleted,
+        "storage_cleanup_failed": storage_failed,
+    }
 
 
 # ---------------- SAFETY PROMPT APIs ----------------

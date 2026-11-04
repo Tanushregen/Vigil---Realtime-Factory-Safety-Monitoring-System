@@ -19,6 +19,7 @@ import {
   Settings as SettingsIcon,
   ServerCog,
   ShieldCheck,
+  Trash2,
   TriangleAlert,
   UserRound,
   Users as UsersIcon,
@@ -34,6 +35,7 @@ import Settings from './pages/Settings'
 import Overview from './pages/Overview'
 import Users from './pages/Users'
 import PageHeader from './components/PageHeader'
+import DeleteGroupDialog from './components/DeleteGroupDialog'
 import { useAuth } from './auth/authContext'
 import logo from './assets/vigil-logo-light.png'
 import './App.css'
@@ -195,6 +197,9 @@ function App() {
   const [selectedCamera, setSelectedCamera] = useState(null)
   const [selectedGroupId, setSelectedGroupId] = useState(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [deletingGroup, setDeletingGroup] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   // Fetch every camera and every group from the backend
   async function fetchCameras() {
@@ -300,6 +305,34 @@ function App() {
 
     setSelectedCamera(null)
     setCurrentPage('cameras')
+  }
+
+  // Delete the open group, with or without its cameras
+  async function handleGroupDelete(deleteCameras) {
+    if (!selectedGroup) return
+
+    setDeletingGroup(true)
+    setDeleteError('')
+
+    try {
+      const response = await fetch(
+        `/api/groups/${selectedGroup.id}?delete_cameras=${deleteCameras}`,
+        { method: 'DELETE' }
+      )
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Unable to delete the group')
+      }
+
+      setConfirmingDelete(false)
+      setSelectedGroupId(null)
+      await fetchCameras()
+    } catch (err) {
+      setDeleteError(err.message)
+    } finally {
+      setDeletingGroup(false)
+    }
   }
 
   // Sidebar navigation
@@ -419,12 +452,35 @@ function App() {
               onRefresh={() => fetchCameras()}
             />
 
-            <button
-              className="cm-back"
-              onClick={() => setSelectedGroupId(null)}
-            >
-              <ArrowLeft size={18} /> Back to Cameras
-            </button>
+            <div className="cm-toolbar">
+              <button
+                className="cm-back"
+                onClick={() => setSelectedGroupId(null)}
+              >
+                <ArrowLeft size={18} /> Back to Cameras
+              </button>
+
+              <button
+                className="cm-delete"
+                onClick={() => {
+                  setDeleteError('')
+                  setConfirmingDelete(true)
+                }}
+              >
+                <Trash2 size={17} /> Delete group
+              </button>
+            </div>
+
+            {confirmingDelete && (
+              <DeleteGroupDialog
+                groupName={selectedGroup.name}
+                cameraNames={selectedGroupCameras.map(camera => camera.name)}
+                busy={deletingGroup}
+                error={deleteError}
+                onCancel={() => setConfirmingDelete(false)}
+                onConfirm={handleGroupDelete}
+              />
+            )}
 
             {selectedGroupCameras.length === 0 ? (
               <div className="empty-state">

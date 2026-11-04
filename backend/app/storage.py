@@ -225,6 +225,28 @@ def presigned_url(key: str, expires: int = 3600) -> str:
     )
 
 
+def delete_object_everywhere(key: str) -> None:
+    """Remove one object together with every stored version of it."""
+    client = get_client()
+    bucket = _bucket()
+
+    versions = []
+    try:
+        paginator = client.get_paginator("list_object_versions")
+        for page in paginator.paginate(Bucket=bucket, Prefix=key):
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", []):
+                if item["Key"] == key:
+                    versions.append(item["VersionId"])
+    except Exception:
+        logger.warning("Could not list versions of %s", key, exc_info=True)
+
+    if versions:
+        for version_id in versions:
+            client.delete_object(Bucket=bucket, Key=key, VersionId=version_id)
+    else:
+        client.delete_object(Bucket=bucket, Key=key)
+
+
 def list_keys(prefix: str = "") -> list[str]:
     keys = []
     paginator = get_client().get_paginator("list_objects_v2")

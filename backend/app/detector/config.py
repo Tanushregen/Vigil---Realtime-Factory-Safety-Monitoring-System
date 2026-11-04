@@ -97,6 +97,11 @@ SCENE_ZONE_ALERTS = _str("SCENE_ZONE_ALERTS", "1") in ("1", "true", "yes")
 SCENE_ENTRY_SECONDS = _float("SCENE_ENTRY_SECONDS", 3.0)    # seconds in the zone before the alert
 SCENE_ENTRY_GAP = _float("SCENE_ENTRY_GAP", 60.0)           # seconds between entry alerts for one zone
 
+# --- Storage: keep to events and short clips. 0 days = keep forever (nothing is deleted).
+CLIP_RETENTION_DAYS = _int("CLIP_RETENTION_DAYS", 0)
+RECORDING_RETENTION_DAYS = _int("RECORDING_RETENTION_DAYS", 0)
+RECORDING_ENABLED = _str("RECORDING_ENABLED", "1") in ("1", "true", "yes")
+
 # --- Factory local time (rule schedules such as "10pm to 5am" use it) ---------
 LOCAL_TZ = _str("VIGIL_LOCAL_TZ", "Asia/Kolkata")
 

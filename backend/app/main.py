@@ -37,6 +37,8 @@ from app.metrics_api import router as metrics_router
 from app.notify_api import router as notify_router
 from app.rules_api import router as rules_router, compiled_view
 from app.whatsapp_webhook import router as whatsapp_webhook_router
+from app.settings_api import router as settings_router
+from app import retention, settings_store
 from app import notify
 from app.violations_api import router as violations_router
 from app.scene_api import router as scene_router
@@ -56,6 +58,7 @@ app.include_router(metrics_router)
 app.include_router(notify_router)
 app.include_router(rules_router)
 app.include_router(whatsapp_webhook_router)
+app.include_router(settings_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=auth_config.ALLOWED_ORIGINS,
@@ -187,11 +190,13 @@ async def startup():
     global health_task,recovery_task
 
     init_db()
+    settings_store.load_overrides()          # values changed on the Settings page win over .env
     purge_orphan_violations()
     close_stale_visits()
     register_existing_streams()
     start_frame_capture()
     start_recordings()
+    retention.start_scheduler()
     start_clip_buffers()
     start_detectors()
     notify.start_report_scheduler()

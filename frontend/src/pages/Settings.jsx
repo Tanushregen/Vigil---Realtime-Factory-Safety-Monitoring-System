@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
-import { MessageCircle, Server, Settings as SettingsIcon, Video } from 'lucide-react'
+import { Activity, HardDrive, MessageCircle, Server, Settings as SettingsIcon, SlidersHorizontal, Video } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
+import DetectionSettings from '../components/settings/DetectionSettings'
+import StorageSettings from '../components/settings/StorageSettings'
+import SystemStatus from '../components/settings/SystemStatus'
 import './Metrics.css'
 
 // WhatsApp alerts: is it on, who gets the messages, and a button to try it
@@ -96,6 +99,15 @@ function Notifications() {
 
 function Settings({ onOpenAlerts }) {
   const [activeTab, setActiveTab] = useState('cameras')
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  // Only administrators can change values; everyone can look
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(response => (response.ok ? response.json() : null))
+      .then(user => setIsAdmin(user?.role === 'admin'))
+      .catch(() => setIsAdmin(false))
+  }, [])
 
   return (
     <div className="ov-page">
@@ -137,6 +149,36 @@ function Settings({ onOpenAlerts }) {
           <MessageCircle size={18} />
           Notifications
         </button>
+
+        <button
+          role="tab"
+          aria-selected={activeTab === 'detection'}
+          className={activeTab === 'detection' ? 'selected' : ''}
+          onClick={() => setActiveTab('detection')}
+        >
+          <SlidersHorizontal size={18} />
+          Detection
+        </button>
+
+        <button
+          role="tab"
+          aria-selected={activeTab === 'storage'}
+          className={activeTab === 'storage' ? 'selected' : ''}
+          onClick={() => setActiveTab('storage')}
+        >
+          <HardDrive size={18} />
+          Storage
+        </button>
+
+        <button
+          role="tab"
+          aria-selected={activeTab === 'system'}
+          className={activeTab === 'system' ? 'selected' : ''}
+          onClick={() => setActiveTab('system')}
+        >
+          <Activity size={18} />
+          System
+        </button>
       </div>
 
       {activeTab === 'cameras' && (
@@ -151,6 +193,12 @@ function Settings({ onOpenAlerts }) {
       )}
 
       {activeTab === 'notifications' && <Notifications />}
+
+      {activeTab === 'detection' && <DetectionSettings isAdmin={isAdmin} />}
+
+      {activeTab === 'storage' && <StorageSettings isAdmin={isAdmin} />}
+
+      {activeTab === 'system' && <SystemStatus />}
 
       {activeTab === 'recorders' && (
         <section className="ov-panel">

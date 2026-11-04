@@ -274,6 +274,15 @@ class ScanStat(Base):
     rejected = Column(Integer, nullable=False, default=0)      # ... that the clip check threw out
 
 
+# Settings changed on the Settings page (only values that differ from the default)
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=False)                          # JSON
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 # WhatsApp: what happened when an alert was sent (one row per alert)
 class AlertDelivery(Base):
     __tablename__ = "alert_deliveries"

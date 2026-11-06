@@ -108,6 +108,9 @@ def _whatsapp_check() -> dict:
     info = notify.status()
     if not info["enabled"]:
         return _check("whatsapp", "WhatsApp alerts", "off", "Not set up: " + (info["reason"] or "off"))
+    if not info["recipients"]:
+        return _check("whatsapp", "WhatsApp alerts", "warn",
+                      "Connected, but no recipients are set. Add numbers under Settings, Notifications.")
     mode = "approved templates" if info["use_templates"] else "free-form (24 h window) with template fallback"
     report = "off" if info["report_hour"] is None else f"at {info['report_hour']:02d}:00 each day"
     return _check("whatsapp", "WhatsApp alerts", "ok",

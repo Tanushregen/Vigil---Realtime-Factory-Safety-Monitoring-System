@@ -24,7 +24,7 @@ from app import metrics, storage
 from app.alerts.config import AlertSettings, ConfigError, WhatsAppConfig
 from app.alerts.formatter import build_alert_text, build_template_params, single_line
 from app.alerts.whatsapp import WhatsAppClient, WhatsAppError
-from app.db import (AlertDelivery, Camera, CameraZone, ReportLog, SessionLocal,
+from app.db import (AlertDelivery, AppSetting, Camera, CameraZone, ReportLog, SessionLocal,
                     Violation, ZoneState, ZoneVisit)
 
 logger = logging.getLogger(__name__)
@@ -51,11 +51,11 @@ def _load():
             return
         _loaded = True
         try:
-            _cfg = WhatsAppConfig.from_env()
+            _cfg = _build_config()
             _settings = AlertSettings.from_env()
             _client = WhatsAppClient(_cfg, max_retries=3)
             _reason = "ok"
-            logger.info("[whatsapp] on: %d recipient(s), templates=%s",
+            logger.info("[whatsapp] on: %d recipient(s) from .env, templates=%s",
                         len(_cfg.recipients), _cfg.use_templates)
         except ConfigError as e:
             _reason = str(e)
@@ -64,12 +64,146 @@ def _load():
 
 def reset(client=None, cfg=None, settings=None):
     """Tests: replace the client / settings, or forget them (reload from env)."""
-    global _client, _cfg, _settings, _reason, _loaded
+    global _client, _cfg, _settings, _reason, _loaded, _override
     with _lock:
+        _override = _UNSET
         _client, _cfg, _settings = client, cfg, settings
         _loaded = client is not None
         _reason = "ok" if cfg else "not configured"
         _report_attempts.clear()
+
+
+# ------------------------------------------------------------------ who gets the messages
+class NumberError(ValueError):
+    pass
+
+
+NUMBER_KEY = "wa_recipients"
+MAX_RECIPIENTS = 20
+_ALLOWED_CHARS = set("0123456789 +-().")
+_UNSET = object()
+_override = _UNSET        # numbers saved on the Settings page; None = nothing saved; _UNSET = not read yet
+
+
+def parse_numbers(raw) -> list[str]:
+    """Clean a list (or a comma / line separated text) of phone numbers into digits only.
+
+    A '+', spaces, dashes and brackets are fine. The country code must come first
+    (919876543210, not 09876543210). Raises NumberError with a sentence for the page."""
+    items = raw if isinstance(raw, (list, tuple)) else re.split(r"[,;\n]", str(raw or ""))
+    numbers: list[str] = []
+    for item in items:
+        text = str(item).strip()
+        if not text:
+            continue
+        if not set(text) <= _ALLOWED_CHARS:
+            raise NumberError(f"'{text}' has characters that are not allowed. Use digits with the "
+                              "country code, for example 919876543210.")
+        digits = re.sub(r"\D", "", text)
+        if digits.startswith("0"):
+            raise NumberError(f"'{text}' starts with 0. Start with the country code instead "
+                              "(for example 91 for India).")
+        if not 8 <= len(digits) <= 15:
+            raise NumberError(f"'{text}' should have 8 to 15 digits including the country code "
+                              "(for example 919876543210).")
+        if digits not in numbers:
+            numbers.append(digits)
+    if len(numbers) > MAX_RECIPIENTS:
+        raise NumberError(f"At most {MAX_RECIPIENTS} numbers.")
+    return numbers
+
+
+def _build_config() -> WhatsAppConfig:
+    """The WhatsApp settings from .env. Only the token and the number id are required there:
+    the people who receive messages are managed on the Settings page."""
+    from app.alerts.config import _clean_env
+
+    missing = [n for n in ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID") if not _clean_env(n)]
+    if missing:
+        raise ConfigError("missing required environment variables: " + ", ".join(missing)
+                          + " (copy .env.example to .env and fill it in)")
+    try:
+        from_env = parse_numbers(_clean_env("VIGIL_WA_RECIPIENTS"))
+    except NumberError as e:
+        raise ConfigError(f"VIGIL_WA_RECIPIENTS: {e}")
+    return WhatsAppConfig(
+        token=_clean_env("WHATSAPP_TOKEN"),
+        phone_number_id=_clean_env("WHATSAPP_PHONE_NUMBER_ID"),
+        recipients=from_env,
+        graph_version=_clean_env("WHATSAPP_GRAPH_VERSION", "v25.0"),
+        use_templates=_clean_env("VIGIL_WA_USE_TEMPLATES", "0") == "1",
+        template_lang=_clean_env("VIGIL_WA_TEMPLATE_LANG", "en"),
+        alert_template=_clean_env("VIGIL_WA_ALERT_TEMPLATE", "vigil_violation_alert"),
+    )
+
+
+def env_recipients() -> list[str]:
+    _load()                  # the .env settings are read on first use, from whichever call comes first
+    return list(_cfg.recipients) if _cfg is not None else []
+
+
+def _read_saved():
+    db = SessionLocal()
+    try:
+        row = db.query(AppSetting).filter(AppSetting.key == NUMBER_KEY).first()
+        return None if row is None else parse_numbers(json.loads(row.value))
+    except Exception:
+        logger.warning("[whatsapp] could not read the saved recipients", exc_info=True)
+        return None
+    finally:
+        db.close()
+
+
+def get_recipients() -> list[str]:
+    """The numbers that receive messages: the list saved on the Settings page if there is one,
+    otherwise the one in .env."""
+    global _override
+    if _override is _UNSET:
+        _override = _read_saved()
+    return list(_override) if _override is not None else env_recipients()
+
+
+def recipients_source() -> str:
+    get_recipients()
+    return "settings" if _override is not None else "env"
+
+
+def set_recipients(raw) -> list[str]:
+    """Save the list from the Settings page. It applies to the very next message."""
+    global _override
+    numbers = parse_numbers(raw)
+    db = SessionLocal()
+    try:
+        row = db.query(AppSetting).filter(AppSetting.key == NUMBER_KEY).first()
+        if row is None:
+            db.add(AppSetting(key=NUMBER_KEY, value=json.dumps(numbers), updated_at=datetime.utcnow()))
+        else:
+            row.value, row.updated_at = json.dumps(numbers), datetime.utcnow()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+    _override = numbers
+    logger.info("[whatsapp] recipients changed: now %d number(s)", len(numbers))
+    return list(numbers)
+
+
+def reset_recipients() -> list[str]:
+    """Forget the saved list and use the one in .env again."""
+    global _override
+    db = SessionLocal()
+    try:
+        db.query(AppSetting).filter(AppSetting.key == NUMBER_KEY).delete(synchronize_session=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+    _override = None
+    return get_recipients()
 
 
 def enabled() -> bool:
@@ -100,7 +234,8 @@ def status() -> dict:
     return {
         "enabled": on,
         "reason": None if on else _reason,
-        "recipients": [mask(r) for r in _cfg.recipients] if on else [],
+        "recipients": [mask(r) for r in get_recipients()] if on else [],
+        "recipients_source": recipients_source() if on else None,
         "use_templates": bool(on and _cfg.use_templates),
         "report_hour": _report_hour(),
         "report_template_set": bool(_report_template()),
@@ -167,6 +302,10 @@ def deliver_alert(violation_id: int, clip: bytes | None = None, force: bool = Fa
     """Send one saved alert to every recipient. Returns the delivery status."""
     if not enabled():
         return "off"
+    recipients = get_recipients()
+    if not recipients:
+        logger.warning("[whatsapp] alert %s: no recipients are set, nothing was sent", violation_id)
+        return "no_recipients"
 
     db = SessionLocal()
     try:
@@ -208,7 +347,7 @@ def deliver_alert(violation_id: int, clip: bytes | None = None, force: bool = Fa
             link = None
 
     sent, errors, new_ids = set(already), [], {}
-    for to in _cfg.recipients:
+    for to in recipients:
         label = mask(to)
         if label in already:
             continue
@@ -226,7 +365,7 @@ def deliver_alert(violation_id: int, clip: bytes | None = None, force: bool = Fa
             errors.append(f"{label}: {type(e).__name__}")
             logger.exception("[whatsapp] alert %s -> %s crashed", violation_id, label)
 
-    everyone = {mask(r) for r in _cfg.recipients}
+    everyone = {mask(r) for r in recipients}
     state = "sent" if everyone <= sent else ("partial" if sent else "failed")
 
     db = SessionLocal()
@@ -329,12 +468,13 @@ def record_receipts(statuses: list[dict]) -> int:
 
 
 # ------------------------------------------------------------------ test message
-def send_test(text: str | None = None) -> list[dict]:
+def send_test(text: str | None = None, to: str | None = None) -> list[dict]:
+    """A test message to every recipient, or only to `to` (which must be one of them)."""
     if not enabled():
         return []
     body = text or "VIGIL test message: WhatsApp alerts are connected."
     results = []
-    for to in _cfg.recipients:
+    for to in ([to] if to else get_recipients()):
         try:
             _client.send_text(to, body)
             results.append({"to": mask(to), "ok": True, "error": None})
@@ -441,6 +581,9 @@ def send_daily_report(day: date | None = None, force: bool = False) -> dict:
 
     if not enabled():
         return {"status": "off", "text": text, "errors": [_reason]}
+    recipients = get_recipients()
+    if not recipients:
+        return {"status": "no_recipients", "text": text, "errors": ["No recipients are set"]}
 
     db = SessionLocal()
     try:
@@ -452,7 +595,7 @@ def send_daily_report(day: date | None = None, force: bool = False) -> dict:
 
     sent, errors = 0, []
     template = _report_template()
-    for to in _cfg.recipients:
+    for to in recipients:
         try:
             if _cfg.use_templates and template:
                 _client.send_template(to, template, _cfg.template_lang,
@@ -474,7 +617,7 @@ def send_daily_report(day: date | None = None, force: bool = False) -> dict:
         except Exception as e:
             errors.append(f"{mask(to)}: {type(e).__name__}")
 
-    state = "sent" if sent == len(_cfg.recipients) else ("partial" if sent else "failed")
+    state = "sent" if sent == len(recipients) else ("partial" if sent else "failed")
 
     db = SessionLocal()
     try:
@@ -517,7 +660,7 @@ def _report_loop():
     while True:
         time.sleep(60)
         try:
-            if not enabled():
+            if not enabled() or not get_recipients():
                 continue
             day = _report_due()
             if day is None:

@@ -119,7 +119,7 @@ flowchart LR
 - Numbers come from the reviews people make. Where there is nothing to calculate them from, the page shows a dash, never an invented zero.
 
 **Operations**
-- Settings tabs: Cameras (analysis, clip length, recording length), Recorders (test, edit, delete), Notifications (WhatsApp), Detection (live thresholds), Storage (usage, retention, recording switch), System (health of every dependency, no secrets shown).
+- Settings tabs: Cameras (analysis, clip length, recording length), Recorders (test, edit, delete), Notifications (WhatsApp, with the list of recipient numbers you can add to, remove from and test one by one), Detection (live thresholds), Storage (usage, retention, recording switch), System (health of every dependency, no secrets shown).
 - Automatic deletion of old alert clips and recordings after N days (off until you set it), with a preview of what would be deleted.
 - Administrator and standard-user accounts, Argon2 passwords, login lockout, optional email password recovery.
 
@@ -188,7 +188,7 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 Keep `FERNET_KEY` private and backed up: saved credentials cannot be decrypted if it is lost or changed.
 
-Optional groups, all documented in `.env.example`: Backblaze B2 (`B2_*`) for clips, WhatsApp (`WHATSAPP_*`, `VIGIL_WA_*`), detection tuning (`DETECTOR_*`), scene alerts (`SCENE_*`), the clip check (`DETECTOR_VERIFY*`), a separate rule-compiler key (`COMPILER_API_KEY`), storage retention, and email password recovery (`SMTP_*`).
+Optional groups, all documented in `.env.example`: Backblaze B2 (`B2_*`) for clips, WhatsApp (`WHATSAPP_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`; the people who receive messages are added on Settings, Notifications, so `VIGIL_WA_RECIPIENTS` is optional), detection tuning (`DETECTOR_*`), scene alerts (`SCENE_*`), the clip check (`DETECTOR_VERIFY*`), a separate rule-compiler key (`COMPILER_API_KEY`), storage retention, and email password recovery (`SMTP_*`).
 
 Many detection and storage values can also be changed on the Settings page without restarting; values changed there win over `.env`.
 

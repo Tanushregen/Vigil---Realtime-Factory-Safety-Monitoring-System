@@ -2,9 +2,11 @@
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app import notify
+from app.auth.dependencies import require_admin
 from app.db import SessionLocal, Violation
 
 router = APIRouter(prefix="/api", tags=["notifications"])
@@ -15,11 +17,58 @@ def notifications_status():
     return notify.status()
 
 
+class TestBody(BaseModel):
+    to: Optional[str] = None          # test one number (it must be in the list) instead of all
+
+
+class RecipientsBody(BaseModel):
+    recipients: list[str] | str       # a list, or text with one number per line or comma separated
+
+
+def _recipients_payload() -> dict:
+    return {"recipients": notify.get_recipients(), "source": notify.recipients_source(),
+            "env_count": len(notify.env_recipients())}
+
+
+@router.get("/notifications/recipients", dependencies=[Depends(require_admin)])
+def get_recipients():
+    """The full numbers (administrators only; everyone else sees them masked in /status)."""
+    return _recipients_payload()
+
+
+@router.put("/notifications/recipients", dependencies=[Depends(require_admin)])
+def put_recipients(body: RecipientsBody):
+    try:
+        notify.set_recipients(body.recipients)
+    except notify.NumberError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _recipients_payload()
+
+
+@router.delete("/notifications/recipients", dependencies=[Depends(require_admin)])
+def delete_recipients():
+    """Forget the list saved here and use VIGIL_WA_RECIPIENTS from .env again."""
+    notify.reset_recipients()
+    return _recipients_payload()
+
+
 @router.post("/notifications/test")
-def notifications_test():
+def notifications_test(body: Optional[TestBody] = None):
     if not notify.enabled():
         raise HTTPException(status_code=409, detail=notify.status()["reason"] or "WhatsApp is off")
-    return {"results": notify.send_test()}
+    numbers = notify.get_recipients()
+    if not numbers:
+        raise HTTPException(status_code=409, detail="No recipients are set. Add a number first.")
+    to = None
+    if body and body.to:
+        try:
+            parsed = notify.parse_numbers(body.to)
+        except notify.NumberError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        if len(parsed) != 1 or parsed[0] not in numbers:
+            raise HTTPException(status_code=404, detail="That number is not in the recipient list")
+        to = parsed[0]
+    return {"results": notify.send_test(to=to)}
 
 
 @router.post("/violations/{violation_id}/resend")

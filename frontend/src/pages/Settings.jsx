@@ -1,25 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Activity, HardDrive, MessageCircle, Server, Settings as SettingsIcon, SlidersHorizontal, Video } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import CamerasSettings from '../components/settings/CamerasSettings'
 import RecordersSettings from '../components/settings/RecordersSettings'
 import DetectionSettings from '../components/settings/DetectionSettings'
+import RecipientsEditor from '../components/settings/RecipientsEditor'
 import StorageSettings from '../components/settings/StorageSettings'
 import SystemStatus from '../components/settings/SystemStatus'
 import './Metrics.css'
 
 // WhatsApp alerts: is it on, who gets the messages, and a button to try it
-function Notifications() {
+function Notifications({ isAdmin }) {
   const [info, setInfo] = useState(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const loadStatus = useCallback(
+    () =>
+      fetch('/api/notifications/status')
+        .then(response => (response.ok ? response.json() : null))
+        .then(setInfo)
+        .catch(() => setInfo(null)),
+    []
+  )
+
   useEffect(() => {
-    fetch('/api/notifications/status')
-      .then(response => (response.ok ? response.json() : null))
-      .then(setInfo)
-      .catch(() => setInfo(null))
-  }, [])
+    loadStatus()
+  }, [loadStatus])
 
   async function call(path, okText) {
     setBusy(true)
@@ -30,7 +37,8 @@ function Notifications() {
       if (!response.ok) throw new Error(data.detail || 'Request failed')
       const failed = (data.results || []).filter(item => !item.ok)
       setMessage(failed.length ? `Failed: ${failed[0].error}` : data.status === 'failed'
-        ? `Failed: ${(data.errors || []).join('; ')}` : okText)
+        ? `Failed: ${(data.errors || []).join('; ')}` : data.status === 'no_recipients'
+          ? 'Add a recipient first.' : okText)
     } catch (err) {
       setMessage(err.message)
     } finally {
@@ -62,11 +70,11 @@ function Notifications() {
         {info?.enabled && (
           <>
             <p>
-              Sending to {info.recipients.join(', ')}.{' '}
               {info.use_templates
                 ? 'Using the approved message template.'
                 : 'Falls back to the approved template outside the 24 hour window.'}
             </p>
+            <RecipientsEditor isAdmin={isAdmin} masked={info.recipients} onChanged={loadStatus} />
             <p>
               Daily report:{' '}
               {info.report_hour == null
@@ -77,15 +85,15 @@ function Notifications() {
               <button
                 type="button"
                 className="mt-submit"
-                disabled={busy}
+                disabled={busy || info.recipients.length === 0}
                 onClick={() => call('/api/notifications/test', 'Test message sent.')}
               >
-                Send a test message
+                Send a test to everyone
               </button>
               <button
                 type="button"
                 className="mt-submit"
-                disabled={busy}
+                disabled={busy || info.recipients.length === 0}
                 onClick={() => call('/api/reports/daily/send', 'The report was sent.')}
               >
                 Send today&apos;s report now
@@ -185,7 +193,7 @@ function Settings({ onOpenAlerts }) {
 
       {activeTab === 'cameras' && <CamerasSettings />}
 
-      {activeTab === 'notifications' && <Notifications />}
+      {activeTab === 'notifications' && <Notifications isAdmin={isAdmin} />}
 
       {activeTab === 'detection' && <DetectionSettings isAdmin={isAdmin} />}
 

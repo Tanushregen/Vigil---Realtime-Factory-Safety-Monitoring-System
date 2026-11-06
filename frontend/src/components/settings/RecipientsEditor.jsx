@@ -16,7 +16,27 @@ async function request(path, options) {
 }
 
 // Who receives the WhatsApp messages. Changes apply to the very next message, with no restart.
-function RecipientsEditor({ isAdmin, masked, onChanged }) {
+// The step every phone needs once: message the business number so WhatsApp lets alerts through
+function ConnectBox({ businessNumber }) {
+  const digits = (businessNumber || '').replace(/\D/g, '')
+  return (
+    <div className="sp-connect">
+      <strong>Connect a phone to receive alerts</strong>
+      <p>
+        Send <b>&quot;hi&quot;</b> on WhatsApp to{' '}
+        <b className="sp-number">{businessNumber || 'your WhatsApp business number'}</b>, then add that phone&apos;s
+        number to the list below.
+      </p>
+      {digits && (
+        <a className="sp-link" href={`https://wa.me/${digits}?text=hi`} target="_blank" rel="noreferrer">
+          Open WhatsApp and say hi
+        </a>
+      )}
+    </div>
+  )
+}
+
+function RecipientsEditor({ isAdmin, masked, businessNumber, onChanged }) {
   const [data, setData] = useState(null)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -91,6 +111,7 @@ function RecipientsEditor({ isAdmin, masked, onChanged }) {
   if (!isAdmin) {
     return (
       <div className="sp-recipients">
+        <ConnectBox businessNumber={businessNumber} />
         <strong>Who receives the messages</strong>
         <p className="sp-note inline">
           {masked.length ? masked.join(', ') : 'Nobody yet.'} Only an administrator can change this list.
@@ -101,6 +122,7 @@ function RecipientsEditor({ isAdmin, masked, onChanged }) {
 
   return (
     <div className="sp-recipients">
+      <ConnectBox businessNumber={businessNumber} />
       <div className="sp-recipients-head">
         <strong>Who receives the messages</strong>
         <small>
@@ -145,8 +167,7 @@ function RecipientsEditor({ isAdmin, masked, onChanged }) {
 
       <p className="sp-note inline">
         Digits with the country code, for example 919876543210 for India. A + or spaces are fine, and you can paste
-        several numbers at once. Each person should send &quot;hi&quot; to your WhatsApp business number once, so
-        messages can reach them.
+        several numbers at once.
       </p>
 
       {data?.source === 'settings' && data.env_count > 0 && (

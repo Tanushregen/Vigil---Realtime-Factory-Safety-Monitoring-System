@@ -430,3 +430,21 @@
   align-items: center;
   gap: 10px;
 }
+
+.sp-connect {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #abefc6;
+  border-radius: 10px;
+  background: #f6fef9;
+}
+
+.sp-connect p {
+  margin: 0;
+}
+
+.sp-connect .sp-number {
+  min-width: 0;
+  white-space: nowrap;
+}

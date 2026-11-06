@@ -74,7 +74,12 @@ function Notifications({ isAdmin }) {
                 ? 'Using the approved message template.'
                 : 'Falls back to the approved template outside the 24 hour window.'}
             </p>
-            <RecipientsEditor isAdmin={isAdmin} masked={info.recipients} onChanged={loadStatus} />
+            <RecipientsEditor
+              isAdmin={isAdmin}
+              masked={info.recipients}
+              businessNumber={info.business_number}
+              onChanged={loadStatus}
+            />
             <p>
               Daily report:{' '}
               {info.report_hour == null

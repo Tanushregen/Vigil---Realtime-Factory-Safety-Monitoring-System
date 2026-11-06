@@ -14,7 +14,9 @@ router = APIRouter(prefix="/api", tags=["notifications"])
 
 @router.get("/notifications/status")
 def notifications_status():
-    return notify.status()
+    data = notify.status()
+    data["business_number"] = notify.business_number() if data["enabled"] else None
+    return data
 
 
 class TestBody(BaseModel):

@@ -25,7 +25,14 @@ Username: admin@regen.com
 Password: Admin@123
 ```
 
-This is a shared demo server running on recorded test footage, not a live factory. WhatsApp alerts raised here go to the team's own test phones, not to you.
+This is a shared demo server running on recorded test footage, not a live factory. WhatsApp alerts raised here go to the phones on its recipient list.
+
+**Receive the alerts on your own phone**
+
+1. Send **hi** on WhatsApp to **+91 85200 62323** ([open WhatsApp](https://wa.me/918520062323?text=hi)). This connects your phone, so alerts can reach it.
+2. Sign in with the demo credentials above and open **Settings**, then **Notifications**.
+3. Under *Who receives the messages*, add your number with the country code (for example `919876543210`) and press **Add**. Press **Send a test** next to it to check.
+4. From now on, every alert arrives on your phone with its video clip.
 
 What to try:
 

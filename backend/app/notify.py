@@ -20,6 +20,8 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import httpx
+
 from app import metrics, storage
 from app.alerts.config import AlertSettings, ConfigError, WhatsAppConfig
 from app.alerts.formatter import build_alert_text, build_template_params, single_line
@@ -64,9 +66,10 @@ def _load():
 
 def reset(client=None, cfg=None, settings=None):
     """Tests: replace the client / settings, or forget them (reload from env)."""
-    global _client, _cfg, _settings, _reason, _loaded, _override
+    global _client, _cfg, _settings, _reason, _loaded, _override, _business
     with _lock:
         _override = _UNSET
+        _business = None
         _client, _cfg, _settings = client, cfg, settings
         _loaded = client is not None
         _reason = "ok" if cfg else "not configured"
@@ -227,6 +230,47 @@ def _report_hour() -> int | None:
 
 def _report_template() -> str:
     return os.environ.get("VIGIL_WA_REPORT_TEMPLATE", "").split("#", 1)[0].strip()
+
+
+# ------------------------------------------------------------------ the number people message first
+_business: tuple[float, str | None] | None = None      # (valid until, number)
+BUSINESS_OK_SECONDS = 3600
+BUSINESS_RETRY_SECONDS = 300
+
+
+def _fetch_business_number() -> str | None:
+    """Ask Meta which number the WhatsApp phone number id belongs to."""
+    response = httpx.get(
+        f"https://graph.facebook.com/{_cfg.graph_version}/{_cfg.phone_number_id}",
+        params={"fields": "display_phone_number"},
+        headers={"Authorization": f"Bearer {_cfg.token}"},
+        timeout=4,
+    )
+    response.raise_for_status()
+    value = response.json().get("display_phone_number")
+    return str(value) if value else None
+
+
+def business_number() -> str | None:
+    """The WhatsApp number a person sends "hi" to, so alerts can reach them, e.g. '+91 85200 62323'.
+
+    VIGIL_WA_BUSINESS_NUMBER in .env wins; otherwise Meta is asked (and the answer kept for an hour,
+    a failure for five minutes so a slow answer never holds the page up twice)."""
+    global _business
+    digits = re.sub(r"\D", "", os.environ.get("VIGIL_WA_BUSINESS_NUMBER", "").split("#", 1)[0])
+    if digits:
+        return "+" + digits
+    if not enabled():
+        return None
+    if _business is not None and time.time() < _business[0]:
+        return _business[1]
+    try:
+        number, keep = _fetch_business_number(), BUSINESS_OK_SECONDS
+    except Exception as e:
+        number, keep = None, BUSINESS_RETRY_SECONDS
+        logger.warning("[whatsapp] could not read the business number from Meta (%s)", type(e).__name__)
+    _business = (time.time() + keep, number)
+    return number
 
 
 def status() -> dict:

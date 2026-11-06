@@ -247,7 +247,13 @@ class CameraWorker(threading.Thread):
 
         try:
             hits = self._zone_filter(result.hits, rules, people, zones, frame.shape)
+            if len(hits) < len(result.hits):
+                logger.info("[detector] cam%s: %d finding(s) dropped, the person is outside the zone "
+                            "the rule names", self.camera_id, len(result.hits) - len(hits))
             confirmed = self._confirmer.update(rules, [p.track_id for p in people], hits)
+            for title, target, seen, needed in self._confirmer.last_waiting:
+                logger.info("[detector] cam%s: '%s' flagged on #%s but must last %.0f s (seen %.0f s), "
+                            "waiting for another scan", self.camera_id, title, target, needed, seen)
             raised_rules = set()
             for c in confirmed:
                 if c.rule.id in raised_rules and c.target_id is not None:

@@ -42,6 +42,7 @@ class Confirmer:
         self._fired_boxes: list[tuple[int, dict, float]] = []   # (rule, box, until)
         self._since: dict[tuple[int, object], float] = {}       # start of the current positive run
         self._waiting: set[tuple[int, object]] = set()           # confirmed-by-count, still timing
+        self.last_waiting: list[tuple[str, int | None, float, float]] = []   # (rule, person, seen s, needed s)
 
     def update(self, rules: list[Rule], person_ids: list[int],
                hits: list[Hit]) -> list[Confirmed]:
@@ -67,6 +68,7 @@ class Confirmer:
 
         confirmed: list[Confirmed] = []
         self._waiting = set()
+        self.last_waiting = []
         for rule in rules:
             for k in keys:
                 key = (rule.id, k)
@@ -78,8 +80,10 @@ class Confirmer:
                 since = self._since.setdefault(key, now)
                 if sum(hist) < config.CONFIRM_HITS:
                     continue
-                if now - since < rule.duration_sec:
+                needed = rule.duration_sec if rule.duration_sec >= config.SUSTAIN_MIN_SECONDS else 0
+                if now - since < needed:
                     self._waiting.add(key)
+                    self.last_waiting.append((rule.title, None if k == SCENE else int(k), now - since, needed))
                     continue                          # not sustained for long enough yet
                 if self._cooldown.get(key, 0) > now:
                     continue

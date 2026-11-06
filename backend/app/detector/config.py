@@ -75,6 +75,11 @@ IDLE_MOTION_THRESHOLD = _float("DETECTOR_IDLE_MOTION", 4.0)  # mean pixel diff
 # --- Confirmation / duplicate suppression -------------------------------------
 CONFIRM_HITS = _int("DETECTOR_CONFIRM_HITS", 2)         # K positive results ...
 CONFIRM_WINDOW = _int("DETECTOR_CONFIRM_WINDOW", 3)     # ... out of the last N
+# A compiled rule that says "for at least N seconds" is only enforced as a separate wait from this
+# many seconds up. Shorter ones are covered by the K-of-N confirmation above: the model answers once
+# every several seconds, so it cannot measure less than that, and waiting for a second scan only
+# loses alerts when the person gets a new tracker id in between.
+SUSTAIN_MIN_SECONDS = _float("DETECTOR_SUSTAIN_MIN", 8.0)
 MIN_CONFIDENCE = _int("DETECTOR_MIN_CONFIDENCE", 60)    # 0-100, VLM confidence floor
 COOLDOWN_SECONDS = _float("DETECTOR_COOLDOWN", 60.0)
 

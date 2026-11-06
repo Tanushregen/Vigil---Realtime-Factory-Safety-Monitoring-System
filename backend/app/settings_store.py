@@ -32,6 +32,10 @@ _SPECS = [
      "detection", (1, 5)),
     ("confirm_window", "CONFIRM_WINDOW", "int", "...out of the last",
      "Scans looked at when counting agreement. Must be at least the number above.", "detection", (1, 8)),
+    ("sustain_min_seconds", "SUSTAIN_MIN_SECONDS", "float", "Shortest 'lasting N seconds' to enforce",
+     "A compiled rule that asks for a shorter time is treated as instant, because scans are too far apart "
+     "to measure it. Longer ones wait for the same person to be flagged again. 0 = enforce every duration.",
+     "detection", (0, 3600)),
     ("cooldown_seconds", "COOLDOWN_SECONDS", "float", "Cooldown (seconds)",
      "After an alert, the same rule for the same person stays quiet for this long.", "detection", (0, 3600)),
     ("scan_interval", "SCAN_INTERVAL", "float", "Scan interval (seconds)",
